@@ -11,3 +11,5 @@ gem "rake", "~> 13.3"
 group :development do
   gem 'pry'
 end
+
+gem "liquid", "~> 5.11"

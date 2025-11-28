@@ -1,0 +1,2 @@
+build:
+	clj -A:build

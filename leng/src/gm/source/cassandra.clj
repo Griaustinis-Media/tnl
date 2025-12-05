@@ -1,5 +1,6 @@
 (ns gm.source.cassandra
   (:require
+   [clojure.tools.logging :as log]
    [gm.source.core :as core]
    [qbits.alia :as alia]
    [qbits.hayt :as hayt]))
@@ -41,22 +42,37 @@
 
 (defn fetch
   "Fetch data from Cassandra based on query spec"
-  [adapter {:keys [table columns conditions limit-n ordering]}]
+  [adapter {:keys [table columns conditions limit-n ordering allow-filtering?]}]
   (let [;; Build the raw CQL query string
         col-str (if (= columns [:*])
                   "*"
                   (clojure.string/join ", " (map name columns)))
-        where-str (when (seq conditions)
-                    (str " WHERE "
-                         (clojure.string/join " AND "
-                                              (map (fn [[k v]]
-                                                     (str (name k) " = ?"))
-                                                   conditions))))
+        where-clauses (when (seq conditions)
+                        (map (fn [[k v]]
+                               (if (vector? v)
+                                           ;; Handle operators like [:> value]
+                                 (let [[op val] v]
+                                   (str (name k) " " (name op) " ?"))
+                                           ;; Simple equality
+                                 (str (name k) " = ?")))
+                             conditions))
+        where-str (when (seq where-clauses)
+                    (str " WHERE " (clojure.string/join " AND " where-clauses)))
         limit-str (when limit-n
                     (str " LIMIT " limit-n))
-        cql (str "SELECT " col-str " FROM " (name table) where-str limit-str)
+        allow-filtering-str (when allow-filtering?
+                              " ALLOW FILTERING")
+        cql (str "SELECT " col-str " FROM " (name table)
+                 where-str limit-str allow-filtering-str)
         params (when (seq conditions)
-                 (vec (vals conditions)))]
+                 (vec (map (fn [[k v]]
+                             (if (vector? v)
+                               (second v)  ; Extract value from [:> value]
+                               v))
+                           conditions)))]
+
+    (log/info "Executing CQL:" cql)
+    (log/info "With params:" params)
 
     (if params
       (alia/execute (:session adapter) cql {:values params})
@@ -115,3 +131,8 @@
   "Specify columns to select"
   [spec columns]
   (assoc spec :columns columns))
+
+(defn allow-filtering
+  "Enable ALLOW FILTERING for the query"
+  [spec]
+  (assoc spec :allow-filtering? true))

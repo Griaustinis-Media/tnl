@@ -1,5 +1,7 @@
+.PHONY:
 build:
-    clojure -T:build ci
+	clojure -T:build ci
 
+.PHONY:
 install: build
-     clojure -T:build install
+	clojure -T:build install

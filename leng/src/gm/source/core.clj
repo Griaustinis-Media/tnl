@@ -1,5 +1,5 @@
 (ns gm.source.core
-  "Core code for our Sink adapter")
+  "Core code for data sources")
 
 (defprotocol DatabaseAdapter
   "Protocol for database-specific implementations"
@@ -16,7 +16,7 @@
   (join [this join-spec]
     "Join with another source (if supported)")
 
-  (group-by [this columns]
+  (group-by-cols [this columns]
     "Group results by columns")
 
   (order-by [this specs]
@@ -77,7 +77,7 @@
   [qb join-type source on-condition]
   (update qb :joins conj {:type join-type :source source :on on-condition}))
 
-(defn group-by*
+(defn group-by-cols*    ; RENAMED from group-by*
   "Group by columns"
   [qb & columns]
   (assoc qb :grouping (vec columns)))

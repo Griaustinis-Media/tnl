@@ -1,86 +1,106 @@
 (ns gm.source.cassandra
-  (:require [universal-db.core :refer [DatabaseAdapter]]
-            [qbits.alia :as alia]
-            [qbits.hayt :as hayt]))
+  (:require
+   [gm.source.core :as core]
+   [qbits.alia :as alia]
+   [qbits.hayt :as hayt]))
 
-(defrecord CassandraAdapter [cluster session]
-  DatabaseAdapter
-
-  (execute [this qb]
-    (let [{:keys [operation columns source conditions joins
-                  grouping ordering limit-n offset-n data]} qb]
-
-      (case operation
-        :select
-        (let [query (cond-> (hayt/select source)
-                      ;; Columns
-                      (not= columns [:*])
-                      (hayt/columns (vec columns))
-
-                      ;; WHERE conditions (must be on partition/clustering keys)
-                      (seq conditions)
-                      (hayt/where (convert-conditions conditions))
-
-                      ;; ORDER BY (only on clustering columns)
-                      (seq ordering)
-                      (hayt/order-by (convert-ordering ordering))
-
-                      ;; LIMIT
-                      limit-n
-                      (hayt/limit limit-n)
-
-                      ;; PER PARTITION LIMIT (Cassandra-specific)
-                      offset-n
-                      (hayt/per-partition-limit offset-n))]
-
-          (alia/execute session query))
-
-        :insert
-        (alia/execute session
-                      (hayt/insert source (hayt/values data)))
-
-        :update
-        (alia/execute session
-                      (-> (hayt/update source)
-                        (hayt/set-columns (:set data))
-                        (hayt/where (:where data))))
-
-        :delete
-        (alia/execute session
-                      (-> (hayt/delete source)
-                        (hayt/where (:where data))))))))
+(defrecord CassandraAdapter [session])
 
 (defn- convert-conditions
-  "Convert universal conditions to Cassandra WHERE format"
+  "Convert conditions to Cassandra WHERE format"
   [conditions]
   (into {}
-        (map (fn [[op col val]]
-               (case op
-                 := [col val]
-                 :> [col [> val]]
-                 :< [col [< val]]
-                 :>= [col [>= val]]
-                 :<= [col [<= val]]
-                 :in [col [:in val]]
-                 [col val]))
+        (map (fn [condition]
+               (if (map? condition)
+                 (first condition)
+                 condition))
              conditions)))
 
-(defn- convert-ordering
-  "Convert universal ordering to Cassandra format"
-  [ordering]
-  (vec (map (fn [[col dir]]
-              [col (keyword (name dir))])
-            (partition 2 ordering))))
+(defn- build-session-config
+  "Build session configuration with optional authentication"
+  [config]
+  (let [base-config {:contact-points (:contact-points config)
+                     :port (or (:port config) 9042)}]
+    (if (and (:username config) (:password config))
+      (assoc base-config
+             :credentials {:user (:username config)
+                           :password (:password config)})
+      base-config)))
+
+(defn fetch
+  "Fetch data from Cassandra based on query spec"
+  [adapter {:keys [table columns conditions limit-n ordering]}]
+  (let [query (cond-> (hayt/select (keyword table))
+                          ;; Columns
+                (and columns (not= columns [:*]))
+                (hayt/columns (vec columns))
+
+                          ;; WHERE conditions
+                (seq conditions)
+                (hayt/where (convert-conditions conditions))
+
+                          ;; ORDER BY
+                (seq ordering)
+                (hayt/order-by (vec ordering))
+
+                          ;; LIMIT
+                limit-n
+                (hayt/limit limit-n))]
+
+    (alia/execute (:session adapter) query)))
+
+(defn fetch-lazy
+  "Fetch data lazily for streaming"
+  [adapter query-spec]
+  (let [query-map (select-keys query-spec [:table :columns :conditions :limit-n :ordering])]
+    (fetch adapter query-map)))
+
+(defn connect
+  "Connect to Cassandra"
+  [adapter config]
+  (let [session-config (build-session-config config)
+        session (alia/session session-config)]
+    (when-let [ks (:keyspace config)]
+      (alia/execute session (str "USE " ks)))
+    (assoc adapter :session session)))
+
+(defn disconnect
+  "Disconnect from Cassandra"
+  [adapter]
+  (when-let [session (:session adapter)]
+    (alia/close session))
+  adapter)
 
 (defn create-adapter
-  "Create a Cassandra adapter with cluster config"
-  [cluster-config]
-  (let [cluster (alia/cluster cluster-config)
-        session (alia/connect cluster)]
-    (->CassandraAdapter cluster session)))
+  "Create a Cassandra source adapter"
+  []
+  (map->CassandraAdapter {}))
 
-(defn close-adapter
-  "Close Cassandra connections"
-  [adapter]
-  (alia/shutdown (:session adapter))
-  (alia/shutdown (:cluster adapter)))
+;; Query spec helpers
+(defn query-spec
+  "Create a query specification"
+  [table]
+  {:table table
+   :columns [:*]
+   :conditions []
+   :ordering []})
+
+(defn select-columns
+  "Specify columns to select"
+  [spec columns]
+  (assoc spec :columns columns))
+
+(defn where
+  "Add filter condition"
+  [spec condition]
+  (update spec :conditions conj condition))
+
+(defn limit
+  "Limit results"
+  [spec n]
+  (assoc spec :limit-n n))
+
+(defn order-by
+  "Order results"
+  [spec ordering]
+  (assoc spec :ordering ordering))

@@ -3,13 +3,31 @@
             [clj-http.client :as http]
             [cheshire.core :as json]))
 
-(defrecord DruidAdapter [base-url datasource])
+(defrecord DruidAdapter [base-url datasource auth-config])
+
+(defn- build-http-options
+  "Build HTTP options with optional authentication.
+
+        Supports:
+        - Basic Auth: {:type :basic :username \"user\" :password \"pass\"}
+        - Bearer Token: {:type :bearer :token \"jwt-token\"}"
+  [adapter content-type]
+  (let [base-opts {:content-type content-type}
+        auth (:auth-config adapter)]
+    (if auth
+      (case (:type auth)
+        :basic (assoc base-opts
+                      :basic-auth [(:username auth) (:password auth)])
+        :bearer (assoc base-opts
+                       :headers {"Authorization" (str "Bearer " (:token auth))})
+        base-opts)
+      base-opts)))
 
 (defn- records->druid-format
   "Convert records to Druid ingestion format"
-  [records timestamp-column]
+  [records timestamp-column datasource]
   {:type "index_parallel"
-   :spec {:dataSchema {:dataSource (:datasource records)
+   :spec {:dataSchema {:dataSource datasource
                        :timestampSpec {:column (name timestamp-column)
                                        :format "auto"}
                        :dimensionsSpec {:dimensions (keys (first records))}
@@ -23,52 +41,44 @@
   sink/SinkAdapter
 
   (insert [this table records]
-                     ;; Druid uses batch ingestion via supervisor/task
-    (let [task-spec (records->druid-format
-                     (assoc this :datasource table)
-                     :timestamp)
+    (let [task-spec (records->druid-format records :timestamp table)
           url (str (:base-url this) "/druid/indexer/v1/task")
-          response (http/post url
-                              {:body (json/generate-string task-spec)
-                               :content-type :json})]
+          http-opts (merge (build-http-options this :json)
+                           {:body (json/generate-string task-spec)})
+          response (http/post url http-opts)]
       (json/parse-string (:body response) true)))
 
-  (update [this table conditions updates]
-                     ;; Druid doesn't support traditional updates
-                     ;; Would need to re-ingest data
+  (update-records [this table conditions updates]    ; RENAMED
     (throw (ex-info "Druid doesn't support in-place updates"
                     {:operation :update})))
 
   (upsert [this table key-columns records]
-                     ;; Druid handles this via rollup during ingestion
     (sink/insert this table records))
 
   (delete [this table conditions]
-                     ;; Druid supports deletion via kill tasks
-    (let [interval (get conditions :interval) ; e.g. "2024-01-01/2024-01-02"
+    (let [interval (get conditions :interval)
           url (str (:base-url this) "/druid/coordinator/v1/datasources/"
-                   (name table) "/intervals/" interval)]
-      (http/delete url)))
+                   (name table) "/intervals/" interval)
+          http-opts (build-http-options this :json)]
+      (http/delete url http-opts)))
 
   (create-table [this table schema]
-                           ;; Druid creates datasources on first ingestion
-                           ;; Schema is defined in the ingestion spec
     {:message "Druid datasource will be created on first ingestion"
      :datasource table
      :schema schema})
 
   (batch-insert [this table records batch-size]
-                           ;; Druid always does batch inserts
     (sink/insert this table records))
 
   (transaction [this operations]
-                          ;; Druid doesn't support transactions
     (throw (ex-info "Druid doesn't support transactions"
                     {:operation :transaction})))
 
   (connect [this config]
-    (assoc this :base-url (:base-url config)
-           :datasource (:datasource config)))
+    (assoc this
+           :base-url (:base-url config)
+           :datasource (:datasource config)
+           :auth-config (:auth config)))
 
   (disconnect [this]
     this))
@@ -76,4 +86,4 @@
 (defn create-adapter
   "Create a Druid sink adapter"
   [config]
-  (map->DruidAdapter config))
+  (map->DruidAdapter (select-keys config [:base-url :datasource :auth])))

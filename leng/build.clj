@@ -28,7 +28,7 @@
      [:url "http://www.eclipse.org/legal/epl-v10.html"]]]
    [:developers
     [:developer
-     [:name "Saras"]]]
+     [:name "Šarūnas Navickas"]]]
    [:scm
     [:url "https://github.com/Griaustinis-Media/tnl"]
     [:connection "scm:git:https://github.com/Griaustinis-Media/tnl.git"]

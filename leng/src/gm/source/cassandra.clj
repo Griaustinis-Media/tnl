@@ -5,52 +5,52 @@
 
 (defrecord CassandraAdapter [cluster session]
   DatabaseAdapter
-  
+
   (execute [this qb]
-    (let [{:keys [operation columns source conditions joins 
+    (let [{:keys [operation columns source conditions joins
                   grouping ordering limit-n offset-n data]} qb]
-      
+
       (case operation
         :select
         (let [query (cond-> (hayt/select source)
                       ;; Columns
-                      (not= columns [:*]) 
+                      (not= columns [:*])
                       (hayt/columns (vec columns))
-                      
+
                       ;; WHERE conditions (must be on partition/clustering keys)
-                      (seq conditions) 
+                      (seq conditions)
                       (hayt/where (convert-conditions conditions))
-                      
+
                       ;; ORDER BY (only on clustering columns)
-                      (seq ordering) 
+                      (seq ordering)
                       (hayt/order-by (convert-ordering ordering))
-                      
+
                       ;; LIMIT
-                      limit-n 
+                      limit-n
                       (hayt/limit limit-n)
-                      
+
                       ;; PER PARTITION LIMIT (Cassandra-specific)
                       offset-n
                       (hayt/per-partition-limit offset-n))]
-          
+
           (alia/execute session query))
-        
+
         :insert
-        (alia/execute session 
+        (alia/execute session
                       (hayt/insert source (hayt/values data)))
-        
+
         :update
         (alia/execute session
                       (-> (hayt/update source)
-                          (hayt/set-columns (:set data))
-                          (hayt/where (:where data))))
-        
+                        (hayt/set-columns (:set data))
+                        (hayt/where (:where data))))
+
         :delete
         (alia/execute session
                       (-> (hayt/delete source)
-                          (hayt/where (:where data))))))))
+                        (hayt/where (:where data))))))))
 
-(defn- convert-conditions 
+(defn- convert-conditions
   "Convert universal conditions to Cassandra WHERE format"
   [conditions]
   (into {}
@@ -65,13 +65,12 @@
                  [col val]))
              conditions)))
 
-(defn- convert-ordering 
+(defn- convert-ordering
   "Convert universal ordering to Cassandra format"
   [ordering]
   (vec (map (fn [[col dir]]
               [col (keyword (name dir))])
             (partition 2 ordering))))
-
 
 (defn create-adapter
   "Create a Cassandra adapter with cluster config"

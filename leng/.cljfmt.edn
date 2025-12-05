@@ -1,0 +1,32 @@
+;; .cljfmt.edn
+{:indentation? true
+ :remove-multiple-non-indenting-spaces? true
+
+ ;; Whitespace rules
+ :remove-surrounding-whitespace? true
+ :remove-trailing-whitespace? true
+ :insert-missing-whitespace? true
+
+ ;; Blank lines
+ :remove-consecutive-blank-lines? true
+ :max-consecutive-blank-lines 2
+
+ ;; Indentation rules (extend as needed)
+ :extra-indents
+ {let        [[:block 1]]
+  letfn      [[:block 1]]
+  fn         [[:block 1]]
+  defn       [[:block 1]]
+  defmacro   [[:block 1]]
+  defmethod  [[:block 2]]
+  cond->     [[:block 1]]
+  ->         [[:block 1]]
+  ->>        [[:block 1]]
+  some->     [[:block 1]]
+  some->>    [[:block 1]]}
+
+ ;; Other style tweaks
+ :prefer-indenting-multiline? true
+ :align-associative? false
+ :align-maps? false
+ :align-sexp? false}

@@ -21,7 +21,7 @@
 
 (defn- pom-template [version]
   [[:description "FIXME: my new library."]
-   [:url "https://github.com/gm/leng"]
+   [:url "https://github.com/Griaustinis-Media/tnl"]
    [:licenses
     [:license
      [:name "Eclipse Public License"]
@@ -30,9 +30,9 @@
     [:developer
      [:name "Saras"]]]
    [:scm
-    [:url "https://github.com/gm/leng"]
-    [:connection "scm:git:https://github.com/gm/leng.git"]
-    [:developerConnection "scm:git:ssh:git@github.com:gm/leng.git"]
+    [:url "https://github.com/Griaustinis-Media/tnl"]
+    [:connection "scm:git:https://github.com/Griaustinis-Media/tnl.git"]
+    [:developerConnection "scm:git:ssh:git@github.com/Griaustinis-Media/tnl.git"]
     [:tag (str "v" version)]]])
 
 (defn- jar-opts [opts]

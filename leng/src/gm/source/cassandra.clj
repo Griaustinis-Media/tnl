@@ -6,48 +6,61 @@
 
 (defrecord CassandraAdapter [session])
 
-(defn- convert-conditions
-  "Convert conditions to Cassandra WHERE format"
-  [conditions]
-  (into {}
-        (map (fn [condition]
-               (if (map? condition)
-                 (first condition)
-                 condition))
-             conditions)))
+(defn- build-contact-points
+  "Build contact points with port if specified"
+  [config]
+  (let [hosts (:contact-points config)
+        port (or (:port config) 9042)]
+    (mapv #(str % ":" port) hosts)))
 
 (defn- build-session-config
-  "Build session configuration with optional authentication"
+  "Build session configuration with optional authentication.
+
+        For Alia 5.0.0:
+        - :contact-points should be [\"host:port\"] format
+        - :load-balancing-local-datacenter is required when using contact points
+        - Authentication requires:
+          * :auth-provider-class (use PlainTextAuthProvider)
+          * :auth-provider-user-name
+          * :auth-provider-password
+        - :session-keyspace sets the keyspace"
   [config]
-  (let [base-config {:contact-points (:contact-points config)
-                     :port (or (:port config) 9042)}]
-    (if (and (:username config) (:password config))
-      (assoc base-config
-             :credentials {:user (:username config)
-                           :password (:password config)})
-      base-config)))
+  (let [base-config {:contact-points (build-contact-points config)
+                          ;; Required when using explicit contact points
+                     :load-balancing-local-datacenter (or (:datacenter config) "datacenter1")}]
+    (cond-> base-config
+                    ;; Add authentication if provided
+      (and (:username config) (:password config))
+      (assoc :auth-provider-class "PlainTextAuthProvider"
+             :auth-provider-user-name (:username config)
+             :auth-provider-password (:password config))
+
+                    ;; Add keyspace if provided
+      (:keyspace config)
+      (assoc :session-keyspace (:keyspace config)))))
 
 (defn fetch
   "Fetch data from Cassandra based on query spec"
   [adapter {:keys [table columns conditions limit-n ordering]}]
-  (let [query (cond-> (hayt/select (keyword table))
-                          ;; Columns
-                (and columns (not= columns [:*]))
-                (hayt/columns (vec columns))
+  (let [;; Build the raw CQL query string
+        col-str (if (= columns [:*])
+                  "*"
+                  (clojure.string/join ", " (map name columns)))
+        where-str (when (seq conditions)
+                    (str " WHERE "
+                         (clojure.string/join " AND "
+                                              (map (fn [[k v]]
+                                                     (str (name k) " = ?"))
+                                                   conditions))))
+        limit-str (when limit-n
+                    (str " LIMIT " limit-n))
+        cql (str "SELECT " col-str " FROM " (name table) where-str limit-str)
+        params (when (seq conditions)
+                 (vec (vals conditions)))]
 
-                          ;; WHERE conditions
-                (seq conditions)
-                (hayt/where (convert-conditions conditions))
-
-                          ;; ORDER BY
-                (seq ordering)
-                (hayt/order-by (vec ordering))
-
-                          ;; LIMIT
-                limit-n
-                (hayt/limit limit-n))]
-
-    (alia/execute (:session adapter) query)))
+    (if params
+      (alia/execute (:session adapter) cql {:values params})
+      (alia/execute (:session adapter) cql))))
 
 (defn fetch-lazy
   "Fetch data lazily for streaming"
@@ -60,8 +73,6 @@
   [adapter config]
   (let [session-config (build-session-config config)
         session (alia/session session-config)]
-    (when-let [ks (:keyspace config)]
-      (alia/execute session (str "USE " ks)))
     (assoc adapter :session session)))
 
 (defn disconnect
@@ -82,18 +93,13 @@
   [table]
   {:table table
    :columns [:*]
-   :conditions []
+   :conditions {}
    :ordering []})
 
-(defn select-columns
-  "Specify columns to select"
-  [spec columns]
-  (assoc spec :columns columns))
-
 (defn where
-  "Add filter condition"
+  "Add filter condition. Accepts a map of column->value pairs."
   [spec condition]
-  (update spec :conditions conj condition))
+  (update spec :conditions merge condition))
 
 (defn limit
   "Limit results"
@@ -104,3 +110,8 @@
   "Order results"
   [spec ordering]
   (assoc spec :ordering ordering))
+
+(defn select-columns
+  "Specify columns to select"
+  [spec columns]
+  (assoc spec :columns columns))

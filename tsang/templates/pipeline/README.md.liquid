@@ -1,0 +1,48 @@
+# {{ project_name }}
+
+Generated pipeline from SQL query.
+
+## Source Query
+````sql
+{{ original_sql }}
+````
+
+## Configuration
+
+### Environment Variables
+
+**{{ source.type | capitalize }}:**
+- `{{ source.type | upcase }}_HOST` - {{ source.type | capitalize }} host (default: {{ source.default_host }})
+- `{{ source.type | upcase }}_USER` - Username
+- `{{ source.type | upcase }}_PASSWORD` - Password
+
+**{{ sink.type | capitalize }}:**
+- `{{ sink.type | upcase }}_URL` - {{ sink.type | capitalize }} URL (default: {{ sink.default_url }})
+- `{{ sink.type | upcase }}_USER` - Username
+- `{{ sink.type | upcase }}_PASSWORD` - Password
+
+## Running
+````bash
+# Set environment variables
+export {{ source.type | upcase }}_HOST={{ source.default_host }}
+export {{ source.type | upcase }}_USER=your-user
+export {{ source.type | upcase }}_PASSWORD=your-password
+export {{ sink.type | upcase }}_URL={{ sink.default_url }}
+export {{ sink.type | upcase }}_USER=your-user
+export {{ sink.type | upcase }}_PASSWORD=your-password
+
+{% if watermark_enabled %}# Run incremental load
+clj -M:run incremental
+
+# Run full reload
+clj -M:run full-reload
+{% else %}# Run pipeline
+clj -M:run
+{% endif %}```
+
+## Pipeline Details
+
+- **Source**: {{ source.type }} {% if source.schema %}({{ source.schema }}.{{ source.table }}){% else %}({{ source.table }}){% endif %}
+- **Sink**: {{ sink.type }} ({{ sink.table }})
+- **Batch Size**: {{ batch_size }}
+{% if watermark_enabled %}- **Incremental**: Yes (watermark on {{ timestamp_column }}){% endif %}

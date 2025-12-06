@@ -6,6 +6,30 @@
 
 (defrecord Watermark [last-timestamp last-run metadata])
 
+(defn- timestamp->string
+  "Convert any timestamp type to ISO-8601 string for serialization"
+  [ts]
+  (cond
+    (nil? ts) nil
+    (string? ts) ts
+    (instance? java.time.Instant ts) (.toString ts)
+    (instance? java.util.Date ts) (.toString (.toInstant ts))
+    (number? ts) (.toString (java.time.Instant/ofEpochMilli ts))
+    :else (str ts)))
+
+(defn- string->instant
+  "Parse ISO-8601 string back to Instant, or return as-is if already parsed"
+  [s]
+  (cond
+    (nil? s) nil
+    (instance? java.time.Instant s) s
+    (string? s) (try
+                  (java.time.Instant/parse s)
+                  (catch Exception e
+                    (log/warn "Could not parse timestamp string:" s)
+                    s))
+    :else s))
+
 (defn load-watermark
   "Load the last processed timestamp from file.
        Returns a Watermark record or nil if no watermark exists."
@@ -13,8 +37,12 @@
   (let [file (io/file watermark-file)]
     (if (.exists file)
       (try
-        (let [data (edn/read-string (slurp file))]
-          (map->Watermark data))
+        (let [data (edn/read-string (slurp file))
+                     ;; Convert string timestamps back to objects if needed
+              parsed-data (-> data
+                            (update :last-timestamp string->instant)
+                            (update :last-run string->instant))]
+          (map->Watermark parsed-data))
         (catch Exception e
           (log/error "Failed to load watermark file:" (.getMessage e))
           nil))
@@ -28,8 +56,8 @@
   ([watermark-file timestamp]
    (save-watermark watermark-file timestamp {}))
   ([watermark-file timestamp metadata]
-   (let [watermark {:last-timestamp timestamp
-                    :last-run (str (java.time.Instant/now))
+   (let [watermark {:last-timestamp (timestamp->string timestamp)
+                    :last-run (timestamp->string (java.time.Instant/now))
                     :metadata metadata}]
      (try
        (spit watermark-file (pr-str watermark))
@@ -166,20 +194,29 @@
        => {:event_ts [:> #inst \"2024-12-05T10:00:00.000Z\"]}"
   [watermark timestamp-column]
   (when (and watermark (:last-timestamp watermark))
-    {timestamp-column [:> (:last-timestamp watermark)]}))
+    (let [ts (:last-timestamp watermark)
+                  ;; Ensure timestamp is in the right format for comparison
+          comparable-ts (if (string? ts)
+                          (string->instant ts)
+                          ts)]
+      {timestamp-column [:> comparable-ts]})))
 
 (defn watermark-stats
   "Get statistics about the watermark"
   [watermark]
   (when watermark
-    {:last-timestamp (:last-timestamp watermark)
-     :last-run (:last-run watermark)
-     :age-hours (when (:last-run watermark)
-                  (try
-                    (let [last-run (java.time.Instant/parse (:last-run watermark))
-                          now (java.time.Instant/now)
-                          duration (java.time.Duration/between last-run now)]
-                      (.toHours duration))
-                    (catch Exception e
-                      nil)))
-     :metadata (:metadata watermark)}))
+    (let [last-run-str (:last-run watermark)
+          age-hours (when last-run-str
+                      (try
+                        (let [last-run (if (string? last-run-str)
+                                         (java.time.Instant/parse last-run-str)
+                                         last-run-str)
+                              now (java.time.Instant/now)
+                              duration (java.time.Duration/between last-run now)]
+                          (.toHours duration))
+                        (catch Exception e
+                          nil)))]
+      {:last-timestamp (:last-timestamp watermark)
+       :last-run last-run-str
+       :age-hours age-hours
+       :metadata (:metadata watermark)})))

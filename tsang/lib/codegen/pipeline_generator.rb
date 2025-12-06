@@ -145,7 +145,7 @@ module Tsang
       end
 
       def default_port_for(type)
-        case type
+        case type.to_sym
         when :cassandra then 9042
         when :postgres then 5432
         when :mongodb then 27017

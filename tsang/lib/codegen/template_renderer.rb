@@ -25,7 +25,7 @@ module Tsang
         
         files = {
           'deps.edn' => 'pipeline/deps.edn',
-          'src/pipeline.clj' => 'pipeline/pipeline.clj',
+          "src/#{context['namespace']}.clj" => 'pipeline/pipeline.clj',
           'README.md' => 'pipeline/README.md',
           'resources/logback.xml' => 'pipeline/logback.xml'
         }
@@ -55,7 +55,7 @@ module Tsang
           'batch_size' => pipeline_data[:config][:batch_size],
           'watermark_enabled' => pipeline_data[:config][:watermark_enabled],
           'incremental' => pipeline_data[:config][:incremental],
-          'leng_path' => pipeline_data[:config][:leng_path] || '../../leng',
+          'leng_path' => pipeline_data[:config][:leng_path] || '../../../leng',
           'original_sql' => pipeline_data[:original_sql]
         }
       end

@@ -43,6 +43,9 @@
                     (instance? java.sql.Timestamp v)
                     (.toString (.toInstant v))
 
+                    (nil? v)
+                    nil
+
                     :else v)])
              record)))
 
@@ -50,35 +53,51 @@
   "Convert records to Druid ingestion format using index_parallel"
   [records timestamp-column datasource]
   (let [converted-records (map convert-timestamps records)
-        dimensions (remove #{(keyword timestamp-column)}
-                           (keys (first converted-records)))]
+             ;; Get all dimension columns (exclude timestamp and internal fields)
+        all-columns (keys (first converted-records))
+        dimensions (remove #{(keyword timestamp-column) :source :ingestion_time}
+                           all-columns)
+             ;; Convert records to newline-delimited JSON
+        json-data (clojure.string/join "\n"
+                                       (map json/generate-string converted-records))]
+
+    (log/debug "Sample record:" (first converted-records))
+    (log/debug "Timestamp column:" timestamp-column)
+    (log/debug "Dimensions:" dimensions)
+
     {:type "index_parallel"
      :spec {:ioConfig {:type "index_parallel"
                        :inputSource {:type "inline"
-                                     :data (clojure.string/join "\n"
-                                                                (map json/generate-string converted-records))}
-                       :inputFormat {:type "json"}}
+                                     :data json-data}
+                       :inputFormat {:type "json"
+                                     :flattenSpec nil
+                                     :featureSpec {}}}
             :tuningConfig {:type "index_parallel"
-                           :partitionsSpec {:type "dynamic"}}
+                           :partitionsSpec {:type "dynamic"}
+                           :maxNumConcurrentSubTasks 1}
             :dataSchema {:dataSource datasource
                          :timestampSpec {:column (name timestamp-column)
-                                         :format "auto"}
-                         :dimensionsSpec {:dimensions (mapv name dimensions)}
+                                         :format "iso"}
+                         :dimensionsSpec {:dimensions (mapv name dimensions)
+                                          :dimensionExclusions []}
                          :granularitySpec {:type "uniform"
                                            :segmentGranularity "DAY"
                                            :queryGranularity "NONE"
-                                           :rollup false}}}}))
+                                           :rollup false
+                                           :intervals nil}
+                         :metricsSpec []}}}))
 
 (extend-type DruidAdapter
   sink/SinkAdapter
 
   (insert [this table records]
-    (let [task-spec (records->druid-format records :event_time table)
+    (let [task-spec (records->druid-format records :event_ts table)
           url (str (:base-url this) "/druid/indexer/v1/task")
           http-opts (merge (build-http-options this :json)
                            {:body (json/generate-string task-spec)
                             :throw-exceptions false})]
       (log/info "Submitting Druid ingestion task for" (count records) "records")
+      (log/debug "Task spec:" (json/generate-string task-spec {:pretty true}))
       (try
         (let [response (http/post url http-opts)]
           (if (= 200 (:status response))

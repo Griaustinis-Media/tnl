@@ -233,6 +233,7 @@ Default output: `./build/<project-name>/`
       "watermark_enabled": true,
       "incremental": true,
       "timestamp_column": "event_ts",
+      "id_column": "event_id",
       "leng_path": "../../leng",
       "source_type": "cassandra",
       "sink": {
@@ -253,6 +254,7 @@ Default output: `./build/<project-name>/`
             "batch_size": 5000,
             "watermark_enabled": true,
             "timestamp_column": "event_ts",
+            "id_column": "event_id",
             "source_type": "cassandra",
             "sink": {
               "type": "druid",

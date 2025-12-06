@@ -1,0 +1,87 @@
+digraph TNL_Architecture {
+    rankdir=TB;
+    node [shape=box, style="rounded,filled", fontname="Arial", fontsize=12];
+    edge [fontname="Arial", fontsize=10];
+    
+    // Define node styles
+    node [fillcolor="#E3F2FD", color="#1976D2", penwidth=2];
+    
+    // Input
+    SQL [label="SQL Query", shape=note, fillcolor="#FFF9C4", color="#F57F17"];
+    
+    // Tsang components
+    subgraph cluster_tsang {
+        label="Tsang (Ruby)";
+        style=filled;
+        fillcolor="#F3E5F5";
+        color="#7B1FA2";
+        penwidth=2;
+        
+        Parser [label="SQL Parser\n(Lexer + Parser)", fillcolor="#CE93D8"];
+        AST [label="Abstract Syntax\nTree (AST)", fillcolor="#BA68C8"];
+        CodeGen [label="Code Generator\n(Liquid Templates)", fillcolor="#AB47BC"];
+    }
+    
+    // Generated output
+    Pipeline [label="Clojure Pipeline\n(Generated Code)", fillcolor="#C8E6C9", color="#388E3C", penwidth=2];
+    
+    // Leng library
+    subgraph cluster_leng {
+        label="Leng Library (Clojure)";
+        style=filled;
+        fillcolor="#E1F5FE";
+        color="#0277BD";
+        penwidth=2;
+        
+        Adapters [label="Protocol-Based\nAdapters", fillcolor="#81D4FA"];
+        Sources [label="Source Adapters\n(Cassandra, PostgreSQL)", fillcolor="#4FC3F7"];
+        Sinks [label="Sink Adapters\n(Druid, PostgreSQL)", fillcolor="#29B6F6"];
+        Utils [label="Utilities\n(Watermark, etc.)", fillcolor="#03A9F4"];
+    }
+    
+    // Databases
+    subgraph cluster_databases {
+        label="";
+        style=invis;
+        
+        SourceDB [label="Source Database\n(Cassandra, PostgreSQL,\nMongoDB)", 
+                  shape=cylinder, fillcolor="#FFCCBC", color="#E64A19"];
+        SinkDB [label="Sink Database\n(Druid, PostgreSQL,\nElasticsearch)", 
+                shape=cylinder, fillcolor="#C5E1A5", color="#558B2F"];
+    }
+    
+    // Flow arrows
+    SQL -> Parser [label="  parse", color="#1976D2", penwidth=2];
+    Parser -> AST [label="  tokenize &\n  analyze", color="#1976D2", penwidth=2];
+    AST -> CodeGen [label="  transform", color="#1976D2", penwidth=2];
+    CodeGen -> Pipeline [label="  generate\n  project", color="#1976D2", penwidth=2];
+    
+    Pipeline -> Adapters [label="  uses", color="#0277BD", penwidth=2, style=dashed];
+    Adapters -> Sources [color="#0277BD"];
+    Adapters -> Sinks [color="#0277BD"];
+    Adapters -> Utils [color="#0277BD"];
+    
+    Sources -> SourceDB [label="  read", color="#E64A19", penwidth=2];
+    Sinks -> SinkDB [label="  write", color="#558B2F", penwidth=2];
+    
+    Pipeline -> SourceDB [label="  extract", color="#E64A19", penwidth=1.5, style=dashed];
+    Pipeline -> SinkDB [label="  load", color="#558B2F", penwidth=1.5, style=dashed];
+    
+    // Legend
+    subgraph cluster_legend {
+        label="Legend";
+        style=filled;
+        fillcolor="#FAFAFA";
+        color="#9E9E9E";
+        
+        L1 [label="Ruby Component", fillcolor="#F3E5F5", color="#7B1FA2"];
+        L2 [label="Clojure Component", fillcolor="#E1F5FE", color="#0277BD"];
+        L3 [label="Generated Code", fillcolor="#C8E6C9", color="#388E3C"];
+        L4 [label="Database", shape=cylinder, fillcolor="#FFCCBC", color="#E64A19"];
+        
+        L1 -> L2 [style=invis];
+        L2 -> L3 [style=invis];
+        L3 -> L4 [style=invis];
+    }
+}
+

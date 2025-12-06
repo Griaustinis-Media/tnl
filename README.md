@@ -9,13 +9,10 @@ A complete data pipeline development toolkit: Parse SQL queries and generate pro
 TNL automates the creation of data pipelines by transforming SQL queries into fully functional Clojure applications. It eliminates boilerplate code and enables rapid development of ETL pipelines, data migrations, and cross-database synchronization workflows.
 
 ### Architecture
-```
-SQL Query → Tsang Parser → AST → Code Generator → Clojure Pipeline
-                                                         ↓
-                                              Uses Leng Library
-                                                         ↓
-                                    Source DB ← Pipeline → Sink DB
-```
+
+<p align="center">
+  <img src="docs/architecture.png" alt="TNL Architecture" width="800"/>
+</p>
 
 ## Components
 
@@ -93,6 +90,7 @@ chmod +x bin/tsang
   "batch_size": 5000,
   "watermark_enabled": true,
   "timestamp_column": "created_at",
+  "id_column": "event_id",
   "source_type": "cassandra",
   "sink": {
     "type": "druid",
@@ -256,6 +254,7 @@ Configure batch sizes, watermark columns, and database connections:
   "batch_size": 10000,
   "watermark_enabled": true,
   "timestamp_column": "updated_at",
+  "id_column": "event_id",
   "source_type": "cassandra",
   "sink": {
     "type": "druid",

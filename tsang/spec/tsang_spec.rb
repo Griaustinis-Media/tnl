@@ -184,6 +184,34 @@ RSpec.describe Tsang do
         expect(ast.where.operator).to eq('NOT')
       end
     end
+
+    describe 'IN expressions' do
+      it 'parses IN with values' do
+        sql = "SELECT * FROM users WHERE status IN ('active', 'pending')"
+        ast = Tsang.parse(sql)
+        
+        expect(ast.where).to be_a(Tsang::AST::InExpression)
+        expect(ast.where.negated).to be false
+        expect(ast.where.values.length).to eq(2)
+      end
+      
+      it 'parses NOT IN with values' do
+        sql = "SELECT * FROM users WHERE status NOT IN ('deleted', 'banned')"
+        ast = Tsang.parse(sql)
+        
+        expect(ast.where).to be_a(Tsang::AST::InExpression)
+        expect(ast.where.negated).to be true
+        expect(ast.where.values.length).to eq(2)
+      end
+      
+      it 'parses IN with numbers' do
+        sql = "SELECT * FROM orders WHERE id IN (1, 2, 3, 4, 5)"
+        ast = Tsang.parse(sql)
+        
+        expect(ast.where).to be_a(Tsang::AST::InExpression)
+        expect(ast.where.values.length).to eq(5)
+      end
+    end
   end
 end
 

@@ -15,6 +15,7 @@ require_relative 'group_by'
 require_relative 'assignment'
 require_relative 'case_expression'
 require_relative 'when_clause'
+require_relative 'in_expression'
 
 module Tsang
   module AST

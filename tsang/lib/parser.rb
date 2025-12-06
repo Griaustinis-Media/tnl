@@ -20,6 +20,10 @@ module Tsang
     end
     
     private
+
+    def match?(*types)
+      types.include?(current_token.type)
+    end
     
     def current_token
       @tokens[@position]
@@ -374,7 +378,8 @@ module Tsang
       left = parse_and_expression
       
       while current_token.type == :OR
-        op = advance.value
+        op_token = advance
+        op = map_operator(op_token.type)
         right = parse_and_expression
         left = AST::BinaryOp.new(left: left, operator: op, right: right)
       end
@@ -386,20 +391,33 @@ module Tsang
       left = parse_comparison_expression
       
       while current_token.type == :AND
-        op = advance.value
+        op_token = advance
+        op = map_operator(op_token.type)
         right = parse_comparison_expression
         left = AST::BinaryOp.new(left: left, operator: op, right: right)
       end
       
       left
     end
-    
+
     def parse_comparison_expression
       left = parse_additive_expression
       
+      # Check for NOT IN first
+      if current_token.type == :NOT && peek_token.type == :IN
+        return parse_not_in_expression(left)
+      end
+      
+      # Check for IN
+      if current_token.type == :IN
+        return parse_in_expression(left)
+      end
+      
+      # Regular comparison operators
       while [:EQUALS, :NOT_EQUALS, :LESS_THAN, :LESS_THAN_OR_EQUAL, 
-             :GREATER_THAN, :GREATER_THAN_OR_EQUAL, :LIKE, :IN].include?(current_token.type)
-        op = advance.value
+            :GREATER_THAN, :GREATER_THAN_OR_EQUAL, :LIKE].include?(current_token.type)
+        op_token = advance
+        op = map_operator(op_token.type)
         right = parse_additive_expression
         left = AST::BinaryOp.new(left: left, operator: op, right: right)
       end
@@ -411,7 +429,8 @@ module Tsang
       left = parse_multiplicative_expression
       
       while [:PLUS, :MINUS].include?(current_token.type)
-        op = advance.value
+        op_token = advance
+        op = map_operator(op_token.type)
         right = parse_multiplicative_expression
         left = AST::BinaryOp.new(left: left, operator: op, right: right)
       end
@@ -423,7 +442,8 @@ module Tsang
       left = parse_unary_expression
       
       while [:ASTERISK, :DIVIDE, :MODULO].include?(current_token.type)
-        op = advance.value
+        op_token = advance
+        op = map_operator(op_token.type)
         right = parse_unary_expression
         left = AST::BinaryOp.new(left: left, operator: op, right: right)
       end
@@ -433,13 +453,15 @@ module Tsang
     
     def parse_unary_expression
       if current_token.type == :NOT
-        op = advance.value
+        op_token = advance
+        op = map_operator(op_token.type)
         operand = parse_unary_expression
         return AST::UnaryOp.new(operator: op, operand: operand)
       end
       
       if current_token.type == :MINUS
-        op = advance.value
+        op_token = advance
+        op = map_operator(op_token.type)
         operand = parse_unary_expression
         return AST::UnaryOp.new(operator: op, operand: operand)
       end
@@ -532,6 +554,69 @@ module Tsang
       end
       
       items
+    end
+
+    def parse_in_expression(left_expr)
+      consume(:IN)
+      consume(:LPAREN)
+      
+      values = []
+      loop do
+        values << parse_expression
+        break unless match?(:COMMA)
+        consume(:COMMA)
+      end
+      
+      consume(:RPAREN)
+      
+      AST::InExpression.new(
+        expression: left_expr,
+        values: values,
+        negated: false
+      )
+    end
+
+    def parse_not_in_expression(left_expr)
+      consume(:NOT)
+      consume(:IN)
+      consume(:LPAREN)
+      
+      values = []
+      loop do
+        values << parse_expression
+        break unless match?(:COMMA)
+        consume(:COMMA)
+      end
+      
+      consume(:RPAREN)
+      
+      AST::InExpression.new(
+        expression: left_expr,
+        values: values,
+        negated: true
+      )
+    end
+
+    def map_operator(token_type)
+      case token_type
+      when :EQUALS then '='
+      when :NOT_EQUALS then '!='
+      when :LESS_THAN then '<'
+      when :LESS_THAN_OR_EQUAL then '<='
+      when :GREATER_THAN then '>'
+      when :GREATER_THAN_OR_EQUAL then '>='
+      when :LIKE then 'LIKE'
+      when :IN then 'IN'
+      when :PLUS then '+'
+      when :MINUS then '-'
+      when :ASTERISK then '*'
+      when :DIVIDE then '/'
+      when :MODULO then '%'
+      when :AND then 'AND'
+      when :OR then 'OR'
+      when :NOT then 'NOT'
+      else token_type.to_s
+      end
     end
   end
 end

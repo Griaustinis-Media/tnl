@@ -25,6 +25,13 @@ module Tsang
           { type: :update, table: to_hash(node.table), assignments: node.assignments.map { |a| to_hash(a) }, where: to_hash(node.where) }
         when Tsang::AST::DeleteStatement
           { type: :delete, table: to_hash(node.table), where: to_hash(node.where) }
+        when Tsang::AST::InExpression
+          {
+            type: :in_expression,
+            expression: to_hash(node.expression),
+            values: node.values.map { |v| to_hash(v) },
+            negated: node.negated
+          }
         when Tsang::AST::TableReference
           node.schema ? { schema: node.schema, table: node.name } : { table: node.name }
         when Tsang::AST::ColumnReference

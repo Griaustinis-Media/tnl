@@ -44,6 +44,7 @@ module Tsang
       private
 
       def build_context(pipeline_data)
+        #puts("CTX: #{pipeline_data}")
         {
           'project_name' => pipeline_data[:config][:project_name],
           'namespace' => pipeline_data[:config][:project_name].gsub('-', '_'),
@@ -52,6 +53,7 @@ module Tsang
           'columns' => pipeline_data[:columns],
           'conditions' => pipeline_data[:conditions].map { |c| stringify_keys(c) },
           'timestamp_column' => pipeline_data[:timestamp_column],
+          'id_column' => pipeline_data[:id_column],
           'batch_size' => pipeline_data[:config][:batch_size],
           'watermark_enabled' => pipeline_data[:config][:watermark_enabled],
           'incremental' => pipeline_data[:config][:incremental],

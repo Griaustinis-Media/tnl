@@ -8,13 +8,15 @@ module Tsang
         @config = default_config.merge(config)
       end
 
+
       def default_config
         {
           project_name: 'generated-pipeline',
           namespace: 'pipeline',
           batch_size: 5000,
           watermark_enabled: true,
-          incremental: true
+          incremental: true,
+          id_column: 'id'
         }
       end
 
@@ -25,6 +27,7 @@ module Tsang
           columns: extract_columns,
           conditions: extract_conditions,
           timestamp_column: extract_timestamp_column,
+          id_column: extract_id_column,
           config: config
         }
       end
@@ -67,13 +70,28 @@ module Tsang
         end.flatten.uniq
       end
 
+      def format_value_for_clojure(value)
+        case value[:type]
+        when :literal, :string
+          "\"#{value[:value]}\""
+        when :number
+          value[:value]
+        else
+          "\"#{value[:value]}\""
+        end
+      end
+
       def extract_conditions
         return [] unless ast[:where]
-        parse_conditions(ast[:where])
+        [parse_where_node(ast[:where])].flatten.compact
       end
 
       def extract_timestamp_column
         config[:timestamp_column] || detect_timestamp_column || :created_at
+      end
+
+      def extract_id_column
+        config[:id_column] || :id
       end
 
       def extract_table_name(from_node)
@@ -132,40 +150,44 @@ module Tsang
         nil
       end
 
-      def parse_conditions(where_node)
-        return [] unless where_node
+      def parse_where_node(node)
+        return nil unless node
         
-        case where_node[:type]
+        case node[:type]
         when :and
-          where_node[:conditions].map { |c| parse_condition(c) }
+          # Return array of conditions
+          node[:left] && node[:right] ? [parse_where_node(node[:left]), parse_where_node(node[:right])] : nil
         when :or
-          [{ type: :or, conditions: where_node[:conditions].map { |c| parse_condition(c) } }]
+          # For OR, we'd need more complex handling - for now treat as single condition
+          parse_single_condition(node)
+        when :in_expression
+          parse_single_condition(node)
+        when :binary_op
+          parse_single_condition(node)
         else
-          [parse_condition(where_node)]
+          parse_single_condition(node)
         end
       end
 
-      def parse_condition(node)
+      def parse_single_condition(node)
         case node[:type]
         when :in_expression
           {
-            type: :in,
+            type: 'in_expression',
             column: extract_column_name(node[:expression]),
-            values: node[:values].map { |v| extract_value(v) },
-            negated: node[:negated]
+            values: node[:values].map { |v| format_value_for_clojure(v) },
+            values_formatted: node[:values].map { |v| format_value_for_clojure(v) }.join(' '),
+            negated: node[:negated] || false
           }
         when :binary_op
           {
+            type: 'comparison',
             column: extract_column_name(node[:left]),
             operator: node[:operator],
-            value: extract_value(node[:right])
+            value: format_value_for_clojure(node[:right])
           }
         else
-          {
-            column: node[:column],
-            operator: node[:operator] || '=',
-            value: node[:value]
-          }
+          nil
         end
       end
 

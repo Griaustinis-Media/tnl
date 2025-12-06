@@ -50,9 +50,9 @@
              record)))
 
 (defn- filter-druid-reserved-columns
-       "Remove Druid reserved columns like __time"
-       [record]
-       (dissoc record :__time))
+  "Remove Druid reserved columns like __time"
+  [record]
+  (dissoc record :__time))
 
 (defn- records->druid-format
   "Convert records to Druid ingestion format using index_parallel"

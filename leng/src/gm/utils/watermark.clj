@@ -4,7 +4,7 @@
             [clojure.edn :as edn]
             [clojure.tools.logging :as log]))
 
-(defrecord Watermark [last-timestamp last-run metadata])
+(defrecord Watermark [last-timestamp processed-ids last-run metadata])
 
 (defn- timestamp->string
   "Convert any timestamp type to ISO-8601 string for serialization"
@@ -38,10 +38,10 @@
     (if (.exists file)
       (try
         (let [data (edn/read-string (slurp file))
-                     ;; Convert string timestamps back to objects if needed
               parsed-data (-> data
                             (update :last-timestamp string->instant)
-                            (update :last-run string->instant))]
+                            (update :last-run string->instant)
+                            (update :processed-ids #(or % #{})))]
           (map->Watermark parsed-data))
         (catch Exception e
           (log/error "Failed to load watermark file:" (.getMessage e))
@@ -51,17 +51,20 @@
 (defn save-watermark
   "Save the watermark to file.
        timestamp: The watermark timestamp value
+       processed-ids: Set of IDs processed at this timestamp
        watermark-file: Path to the watermark file
        metadata: Optional metadata map to store with watermark"
-  ([watermark-file timestamp]
-   (save-watermark watermark-file timestamp {}))
-  ([watermark-file timestamp metadata]
+  ([watermark-file timestamp processed-ids]
+   (save-watermark watermark-file timestamp processed-ids {}))
+  ([watermark-file timestamp processed-ids metadata]
    (let [watermark {:last-timestamp (timestamp->string timestamp)
+                    :processed-ids (set processed-ids)
                     :last-run (timestamp->string (java.time.Instant/now))
                     :metadata metadata}]
      (try
        (spit watermark-file (pr-str watermark))
-       (log/info "Saved watermark:" watermark)
+       (log/info "Saved watermark:" {:timestamp (timestamp->string timestamp)
+                                     :id-count (count processed-ids)})
        (map->Watermark watermark)
        (catch Exception e
          (log/error "Failed to save watermark:" (.getMessage e))
@@ -75,69 +78,59 @@
       (.delete file)
       (log/info "Deleted watermark file:" watermark-file))))
 
+(defn- compare-timestamps
+  "Compare two timestamps, returning -1, 0, or 1"
+  [ts1 ts2]
+  (cond
+    (nil? ts1) -1
+    (nil? ts2) 1
+
+    (and (instance? java.time.Instant ts1) (instance? java.time.Instant ts2))
+    (.compareTo ts1 ts2)
+
+    (and (instance? java.util.Date ts1) (instance? java.util.Date ts2))
+    (.compareTo ts1 ts2)
+
+    (and (number? ts1) (number? ts2))
+    (compare ts1 ts2)
+
+    :else
+    (let [millis1 (cond
+                    (instance? java.time.Instant ts1) (.toEpochMilli ts1)
+                    (instance? java.util.Date ts1) (.getTime ts1)
+                    (number? ts1) ts1
+                    :else 0)
+          millis2 (cond
+                    (instance? java.time.Instant ts2) (.toEpochMilli ts2)
+                    (instance? java.util.Date ts2) (.getTime ts2)
+                    (number? ts2) ts2
+                    :else 0)]
+      (compare millis1 millis2))))
+
 (defn find-max-timestamp
   "Find the maximum timestamp from a collection of records.
-       Handles java.time.Instant, java.util.Date, and numeric timestamps.
-
-       records: Collection of records (maps)
-       timestamp-column: Keyword for the timestamp column"
-  [records timestamp-column]
+       Returns [max-timestamp ids-at-max-timestamp]"
+  [records timestamp-column id-column]
   (when (seq records)
-    (let [timestamps (map #(get % timestamp-column) records)]
-      (reduce (fn [max-ts ts]
-                (cond
-                  (nil? max-ts) ts
-                  (nil? ts) max-ts
-
-                               ;; Handle java.time.Instant
-                  (and (instance? java.time.Instant max-ts)
-                       (instance? java.time.Instant ts))
-                  (if (.isAfter ts max-ts) ts max-ts)
-
-                               ;; Handle java.util.Date
-                  (and (instance? java.util.Date max-ts)
-                       (instance? java.util.Date ts))
-                  (if (.after ts max-ts) ts max-ts)
-
-                               ;; Handle numeric timestamps (millis)
-                  (and (number? max-ts) (number? ts))
-                  (max max-ts ts)
-
-                               ;; Handle mixed types - convert to millis for comparison
-                  :else
-                  (let [max-millis (cond
-                                     (instance? java.time.Instant max-ts)
-                                     (.toEpochMilli max-ts)
-
-                                     (instance? java.util.Date max-ts)
-                                     (.getTime max-ts)
-
-                                     (number? max-ts)
-                                     max-ts
-
-                                     :else
-                                     (throw (ex-info "Unsupported timestamp type"
-                                                     {:type (type max-ts)})))
-                        ts-millis (cond
-                                    (instance? java.time.Instant ts)
-                                    (.toEpochMilli ts)
-
-                                    (instance? java.util.Date ts)
-                                    (.getTime ts)
-
-                                    (number? ts)
-                                    ts
-
-                                    :else
-                                    (throw (ex-info "Unsupported timestamp type"
-                                                    {:type (type ts)})))]
-                    (if (> ts-millis max-millis) ts max-ts))))
-              nil
-              timestamps))))
+    (let [;; Find the maximum timestamp
+          max-ts (reduce (fn [max-so-far record]
+                           (let [ts (get record timestamp-column)]
+                             (if (or (nil? max-so-far)
+                                     (pos? (compare-timestamps ts max-so-far)))
+                               ts
+                               max-so-far)))
+                         nil
+                         records)
+                  ;; Get all IDs that have this max timestamp
+          ids-at-max (into #{}
+                           (comp
+                            (filter #(zero? (compare-timestamps (get % timestamp-column) max-ts)))
+                            (map #(get % id-column)))
+                           records)]
+      [max-ts ids-at-max])))
 
 (defn find-min-timestamp
-  "Find the minimum timestamp from a collection of records.
-       Similar to find-max-timestamp but returns the earliest timestamp."
+  "Find the minimum timestamp from a collection of records."
   [records timestamp-column]
   (when (seq records)
     (let [timestamps (map #(get % timestamp-column) records)]
@@ -184,22 +177,42 @@
 
 (defn build-incremental-condition
   "Build a condition map for incremental queries based on watermark.
-       Returns a condition that can be passed to query builders.
+       Uses composite condition: timestamp > watermark OR (timestamp = watermark AND id NOT IN processed-ids)
 
        watermark: Watermark record or nil
        timestamp-column: Keyword for the timestamp column
+       id-column: Keyword for the unique ID column
 
-       Example:
-       (build-incremental-condition watermark :event_ts)
-       => {:event_ts [:> #inst \"2024-12-05T10:00:00.000Z\"]}"
-  [watermark timestamp-column]
+       Returns condition map suitable for query builders."
+  [watermark timestamp-column id-column]
   (when (and watermark (:last-timestamp watermark))
     (let [ts (:last-timestamp watermark)
-                  ;; Ensure timestamp is in the right format for comparison
+          processed-ids (:processed-ids watermark #{})
           comparable-ts (if (string? ts)
                           (string->instant ts)
                           ts)]
-      {timestamp-column [:> comparable-ts]})))
+      (if (seq processed-ids)
+                   ;; Composite condition: ts > watermark OR (ts = watermark AND id NOT IN processed)
+        {:or [{timestamp-column [:> comparable-ts]}
+              {:and [{timestamp-column [:= comparable-ts]}
+                     {id-column [:not-in processed-ids]}]}]}
+                   ;; Simple condition: ts > watermark
+        {timestamp-column [:> comparable-ts]}))))
+
+(defn filter-already-processed
+  "Filter out records that have already been processed.
+       Used as a safety check in case the database doesn't support the composite query."
+  [records watermark timestamp-column id-column]
+  (if-not (and watermark (:last-timestamp watermark))
+    records
+    (let [last-ts (:last-timestamp watermark)
+          processed-ids (:processed-ids watermark #{})]
+      (filter (fn [record]
+                (let [rec-ts (get record timestamp-column)
+                      rec-id (get record id-column)]
+                  (not (and (= rec-ts last-ts)
+                            (contains? processed-ids rec-id)))))
+              records))))
 
 (defn watermark-stats
   "Get statistics about the watermark"
@@ -217,6 +230,7 @@
                         (catch Exception e
                           nil)))]
       {:last-timestamp (:last-timestamp watermark)
+       :processed-ids-count (count (:processed-ids watermark #{}))
        :last-run last-run-str
        :age-hours age-hours
        :metadata (:metadata watermark)})))

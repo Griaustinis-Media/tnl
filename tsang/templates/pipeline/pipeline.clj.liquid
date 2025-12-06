@@ -8,13 +8,13 @@
 
 ;; Configuration
 (def config
-  {:{{ source.type }} {:contact-points [(or (System/getenv "{{ source.type | upcase }}_HOST") "{{ source.default_host }}")]
+  {:cassandra {:contact-points [(or (System/getenv "{{ source.type | upcase }}_HOST") "{{ source.default_host }}")]
                :port {{ source.default_port }}
                :username (System/getenv "{{ source.type | upcase }}_USER")
                :password (System/getenv "{{ source.type | upcase }}_PASSWORD")
                {% if source.schema %}:keyspace "{{ source.schema }}"{% endif %}}
 
-   :{{ sink.type }} {:base-url (or (System/getenv "{{ sink.type | upcase }}_URL") "{{ sink.default_url }}")
+   :druid {:base-url (or (System/getenv "{{ sink.type | upcase }}_URL") "{{ sink.default_url }}")
            :auth {:type :basic
                   :username (System/getenv "{{ sink.type | upcase }}_USER")
                   :password (System/getenv "{{ sink.type | upcase }}_PASSWORD")}}
@@ -23,7 +23,9 @@
               :source-table "{{ source.table }}"
               :dest-table "{{ sink.table }}"
               :timestamp-column :{{ timestamp_column }}
+              :id-column :{{ id_column | default: "id" }}
               {% if watermark_enabled %}:watermark-file ".pipeline-watermark.edn"{% endif %}}})
+  
 
 ;; Helper: Build WHERE clause from conditions
 (defn build-where-clause
@@ -68,7 +70,8 @@
   (let [start-time (System/currentTimeMillis)
         watermark-file (:watermark-file (:pipeline config))
         wm (watermark/load-watermark watermark-file)
-        timestamp-col (:timestamp-column (:pipeline config))]
+        timestamp-col (:timestamp-column (:pipeline config))
+        id-col (:id-column (:pipeline config))]
 
     (log/info "Watermark stats:" (watermark/watermark-stats wm))
 
@@ -81,11 +84,12 @@
         (let [base-query (-> (source/query-spec (:source-table (:pipeline config)))
                              (source/select-columns [{% for col in columns %}:{{ col }}{% unless forloop.last %} {% endunless %}{% endfor %}]))
               
-              incremental-condition (watermark/build-incremental-condition wm timestamp-col)
+              ;; Build composite incremental condition
+              incremental-condition (watermark/build-incremental-condition wm timestamp-col id-col)
               
               query (if incremental-condition
                       (do
-                        (log/info "Fetching records with condition:" incremental-condition)
+                        (log/info "Fetching records with composite condition")
                         (-> base-query
                             (source/where incremental-condition)
                             (source/allow-filtering)))
@@ -95,7 +99,9 @@
 
           (log/info "Fetching data from {{ source.type }}...")
           (let [source-data (source/fetch source-conn query)
-                record-count (count source-data)]
+                ;; Additional safety filter (in case DB doesn't support composite query)
+                filtered-data (watermark/filter-already-processed source-data wm timestamp-col id-col)
+                record-count (count filtered-data)]
 
             (if (zero? record-count)
               (do
@@ -104,10 +110,11 @@
 
               (do
                 (log/info "Fetched" record-count "new records")
-                (let [transformed-data (map transform-record source-data)
-                      max-timestamp (watermark/find-max-timestamp source-data timestamp-col)]
+                (let [transformed-data (map transform-record filtered-data)
+                      ;; Get max timestamp and IDs at that timestamp
+                      [max-timestamp ids-at-max] (watermark/find-max-timestamp filtered-data timestamp-col id-col)]
 
-                  (log/info "Max timestamp in batch:" max-timestamp)
+                  (log/info "Max timestamp:" max-timestamp "with" (count ids-at-max) "records")
 
                   (let [result (if (> record-count (:batch-size (:pipeline config)))
                                  (sink/batch-insert sink-conn
@@ -118,7 +125,8 @@
                                              (:dest-table (:pipeline config))
                                              transformed-data))]
 
-                    (watermark/save-watermark watermark-file max-timestamp
+                    ;; Save watermark with processed IDs
+                    (watermark/save-watermark watermark-file max-timestamp ids-at-max
                                             {:records-processed record-count})
 
                     (let [elapsed (- (System/currentTimeMillis) start-time)]
@@ -126,7 +134,8 @@
                        :records-processed record-count
                        :elapsed-ms elapsed
                        :previous-watermark (:last-timestamp wm)
-                       :new-watermark max-timestamp})))))))
+                       :new-watermark max-timestamp
+                       :processed-ids (count ids-at-max)})))))))
 
         (finally
           (source/disconnect source-conn)
@@ -151,19 +160,19 @@
     (try
       (let [base-query (-> (source/query-spec (:source-table (:pipeline config)))
                           (source/select-columns [{% for col in columns %}:{{ col }}{% unless forloop.last %} {% endunless %}{% endfor %}]))
-            
+
             ;; Apply static WHERE conditions if any
             {% if conditions.size > 0 %}
             where-conditions (build-where-clause [
               {% for cond in conditions %}
-              {:type :{{ cond.type | default: "comparison" }}
+              {:type :{{ cond.type }}
                :column :{{ cond.column }}
-               {% if cond.type == "in" %}
-               :values {{ cond.values | json }}
-               :negated {{ cond.negated | default: false }}
+               {% if cond.type == "in_expression" %}
+               :values [{{ cond.values_formatted }}]
+               :negated {{ cond.negated }}
                {% else %}
-               :operator "{{ cond.operator | default: "=" }}"
-               :value {{ cond.value | json }}
+               :operator "{{ cond.operator }}"
+               :value {{ cond.value }}
                {% endif %}}{% unless forloop.last %},{% endunless %}
               {% endfor %}])
             
@@ -171,6 +180,7 @@
             {% else %}
             query base-query
             {% endif %}
+
             
             source-data (source/fetch source-conn query)
             record-count (count source-data)]

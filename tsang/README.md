@@ -361,3 +361,11 @@ Project structure:
 ## Integration with Leng
 
 Generated pipelines use the Leng universal database library located at `../../leng` relative to the generated pipeline.
+
+## License
+
+MIT License
+
+The Tsang parser and code generator are licensed under the MIT License.
+
+Note: Generated pipelines use the Leng library which is licensed under the Eclipse Public License 2.0. Generated code inherits the EPL 2.0 license.

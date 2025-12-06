@@ -49,10 +49,15 @@
                     :else v)])
              record)))
 
+(defn- filter-druid-reserved-columns
+       "Remove Druid reserved columns like __time"
+       [record]
+       (dissoc record :__time))
+
 (defn- records->druid-format
   "Convert records to Druid ingestion format using index_parallel"
   [records timestamp-column datasource]
-  (let [converted-records (map convert-timestamps records)
+  (let [converted-records (map (comp convert-timestamps filter-druid-reserved-columns) records)
              ;; Get all dimension columns (exclude timestamp and internal fields)
         all-columns (keys (first converted-records))
         dimensions (remove #{(keyword timestamp-column) :source :ingestion_time}

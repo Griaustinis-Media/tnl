@@ -25,6 +25,25 @@
               :timestamp-column :{{ timestamp_column }}
               {% if watermark_enabled %}:watermark-file ".pipeline-watermark.edn"{% endif %}}})
 
+;; Helper: Build WHERE clause from conditions
+(defn build-where-clause
+  "Convert condition maps to source adapter WHERE format"
+  [conditions]
+  (reduce
+    (fn [acc condition]
+      (case (:type condition)
+        :in (merge acc {(:column condition) 
+                        (if (:negated condition)
+                          [:not-in (:values condition)]
+                          [:in (:values condition)])})
+        ;; Default: simple comparison
+        (merge acc {(:column condition)
+                    (if (= (:operator condition) "=")
+                      (:value condition)
+                      [(keyword (:operator condition)) (:value condition)])})))
+    {}
+    conditions))
+
 ;; Data transformation
 (defn transform-record
   "Transform {{ source.type }} record to {{ sink.type }} format"
@@ -130,7 +149,29 @@
                      (sink/connect (:{{ sink.type }} config)))]
 
     (try
-      (let [query (source/query-spec (:source-table (:pipeline config)))
+      (let [base-query (-> (source/query-spec (:source-table (:pipeline config)))
+                          (source/select-columns [{% for col in columns %}:{{ col }}{% unless forloop.last %} {% endunless %}{% endfor %}]))
+            
+            ;; Apply static WHERE conditions if any
+            {% if conditions.size > 0 %}
+            where-conditions (build-where-clause [
+              {% for cond in conditions %}
+              {:type :{{ cond.type | default: "comparison" }}
+               :column :{{ cond.column }}
+               {% if cond.type == "in" %}
+               :values {{ cond.values | json }}
+               :negated {{ cond.negated | default: false }}
+               {% else %}
+               :operator "{{ cond.operator | default: "=" }}"
+               :value {{ cond.value | json }}
+               {% endif %}}{% unless forloop.last %},{% endunless %}
+              {% endfor %}])
+            
+            query (source/where base-query where-conditions)
+            {% else %}
+            query base-query
+            {% endif %}
+            
             source-data (source/fetch source-conn query)
             record-count (count source-data)]
 

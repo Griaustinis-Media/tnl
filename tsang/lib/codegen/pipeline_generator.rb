@@ -84,6 +84,24 @@ module Tsang
         from_node[:schema]
       end
 
+      def extract_column_name(expr)
+        case expr[:type]
+        when :column, :identifier
+          expr[:name]
+        else
+          expr[:value] || expr.to_s
+        end
+      end
+
+      def extract_value(expr)
+        case expr[:type]
+        when :literal, :string, :number
+          expr[:value]
+        else
+          expr[:value] || expr.to_s
+        end
+      end
+
       def detect_timestamp_column
         return nil unless ast[:where]
         
@@ -128,11 +146,27 @@ module Tsang
       end
 
       def parse_condition(node)
-        {
-          column: node[:column],
-          operator: node[:operator] || '=',
-          value: node[:value]
-        }
+        case node[:type]
+        when :in_expression
+          {
+            type: :in,
+            column: extract_column_name(node[:expression]),
+            values: node[:values].map { |v| extract_value(v) },
+            negated: node[:negated]
+          }
+        when :binary_op
+          {
+            column: extract_column_name(node[:left]),
+            operator: node[:operator],
+            value: extract_value(node[:right])
+          }
+        else
+          {
+            column: node[:column],
+            operator: node[:operator] || '=',
+            value: node[:value]
+          }
+        end
       end
 
       def default_host_for(type)

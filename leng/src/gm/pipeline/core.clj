@@ -28,32 +28,35 @@
   (fn [record]
     (let [pipeline-cfg (:pipeline config)
           source-type (:source-type pipeline-cfg)
-          timestamp-col (:timestamp-column pipeline-cfg)]
-      (-> record
-          ;; Remove row number metadata from file-based sources
-        (dissoc :__row_number)
+          timestamp-col (:timestamp-column pipeline-cfg)
 
-        ;; Transform timestamps for non-CSV sources
-        ((fn [rec]
-           (if (and (not= source-type "csv")
-                    timestamp-col
-                    (contains? rec timestamp-col))
-             (update rec timestamp-col
-                     #(cond
-                        (instance? java.time.Instant %)
-                        (.toString %)
+                ;; Step 1: Remove row number
+          rec-without-row (dissoc record :__row_number)
 
-                        (instance? java.util.Date %)
-                        (.format (java.text.SimpleDateFormat.
-                                  "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
-                                 %)
+                ;; Step 2: Transform timestamp if needed
+          rec-with-timestamp (if (and (not= source-type "csv")
+                                      timestamp-col
+                                      (contains? rec-without-row timestamp-col))
+                               (update rec-without-row timestamp-col
+                                       (fn [ts]
+                                         (cond
+                                           (instance? java.time.Instant ts)
+                                           (.toString ts)
 
-                        :else %))
-             rec)))
+                                           (instance? java.util.Date ts)
+                                           (.format (java.text.SimpleDateFormat.
+                                                     "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+                                                    ts)
 
-        ;; Add metadata
-        (assoc :source source-type
-               :ingestion_time (System/currentTimeMillis))))))
+                                           :else ts)))
+                               rec-without-row)
+
+                ;; Step 3: Add metadata
+          final-rec (assoc rec-with-timestamp
+                           :source source-type
+                           :ingestion_time (System/currentTimeMillis))]
+
+      final-rec)))
 
 (defn transform-timestamp
   "Convert various timestamp types to ISO-8601 string"

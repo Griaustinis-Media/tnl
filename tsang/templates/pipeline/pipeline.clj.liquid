@@ -58,7 +58,7 @@
 
       (try
         (let [base-query (-> (source/query-spec (:source-table (:pipeline config)))
-                             (source/select-columns [{% for col in columns %}:{{ col }}{% unless forloop.last %} {% endunless %}{% endfor %}]))
+                             (source/select-columns [{% for col in columns %}:{{ col }} {% unless forloop.last %} {% endunless %}{% endfor %}]))
               
               {% if source.type == "csv" %}
               ;; CSV: Apply offset based on watermark
@@ -157,7 +157,7 @@
                        (sink/connect (:sink config)))]
     (try
       (let [base-query (-> (source/query-spec (:source-table (:pipeline config)))
-                          (source/select-columns [{% for col in columns %}:{{ col }}{% unless forloop.last %} {% endunless %}{% endfor %}]))
+                          (source/select-columns [{% for col in columns %}:{{ col }} {% unless forloop.last %} {% endunless %}{% endfor %}]))
 
             ;; Apply static WHERE conditions if any
             {% if conditions.size > 0 %}

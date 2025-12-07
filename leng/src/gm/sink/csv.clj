@@ -21,9 +21,11 @@
   (when (seq records)
     (let [file (io/file file-path)
           file-exists? (.exists file)
+          file-has-content? (and file-exists? (pos? (.length file)))
                    ;; Get headers from first record, sorted for consistency
           headers (sort (keys (first records)))
-          write-headers? (and (not append?) (or (not file-exists?) (zero? (.length file))))]
+                   ;; Write headers if file is new OR empty, regardless of append flag
+          write-headers? (not file-has-content?)]
 
       (with-open [writer (io/writer file :append append?)]
         (csv/write-csv writer
@@ -34,7 +36,8 @@
                                          records)))
                        :separator (first delimiter))
         (log/info "Wrote" (count records) "records to" file-path
-                  (when append? "(append mode)"))))))
+                  (when append? "(append mode)")
+                  (when write-headers? " with headers"))))))
 
 ;; Implement the SinkAdapter protocol
 (extend-type CsvSinkAdapter

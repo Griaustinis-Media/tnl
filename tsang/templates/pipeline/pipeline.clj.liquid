@@ -8,18 +8,14 @@
   (:gen-class))
 
 ;; Configuration
-(def config
-  {:cassandra {:contact-points [(or (System/getenv "{{ source.type | upcase }}_HOST") "{{ source.default_host }}")]
+(def config {
+  {% if source.type == "csv" %} :csv {:file-path (or (System/getenv "CSV_FILE") "{{ source.default_host }}/{{ source.table }}.csv")
+         :delimiter ","}{% else %}:{{ source.type }} {:contact-points [(or (System/getenv "{{ source.type | upcase }}_HOST") "{{ source.default_host }}")]
                :port {{ source.default_port }}
                :username (System/getenv "{{ source.type | upcase }}_USER")
                :password (System/getenv "{{ source.type | upcase }}_PASSWORD")
-               {% if source.schema %}:keyspace "{{ source.schema }}"{% endif %}}
-
-   :druid {:base-url (or (System/getenv "{{ sink.type | upcase }}_URL") "{{ sink.default_url }}")
-           :auth {:type :basic
-                  :username (System/getenv "{{ sink.type | upcase }}_USER")
-                  :password (System/getenv "{{ sink.type | upcase }}_PASSWORD")}}
-
+               {% if source.schema %}:keyspace "{{ source.schema }}"{% endif %}}{% endif %}
+   :{{ sink.type }} {{ sink.config_template }}
    :pipeline {:batch-size {{ batch_size }}
               :source-table "{{ source.table }}"
               :dest-table "{{ sink.table }}"

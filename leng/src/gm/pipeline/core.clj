@@ -26,20 +26,33 @@
 (defn make-transform-record
   [config]
   (fn [record]
-    (let [pipeline-cfg (:pipeline config)]
+    (let [pipeline-cfg (:pipeline config)
+          source-type (:source-type pipeline-cfg)
+          timestamp-col (:timestamp-column pipeline-cfg)]
       (-> record
-        (update (:timestamp-column pipeline-cfg)
-                #(cond
-                   (instance? java.time.Instant %)
-                   (.toString %)
+          ;; Remove row number metadata from file-based sources
+        (dissoc :__row_number)
 
-                   (instance? java.util.Date %)
-                   (.format (java.text.SimpleDateFormat.
-                             "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
-                            %)
+        ;; Transform timestamps for non-CSV sources
+        ((fn [rec]
+           (if (and (not= source-type "csv")
+                    timestamp-col
+                    (contains? rec timestamp-col))
+             (update rec timestamp-col
+                     #(cond
+                        (instance? java.time.Instant %)
+                        (.toString %)
 
-                   :else %))
-        (assoc :source (:source-type pipeline-cfg)
+                        (instance? java.util.Date %)
+                        (.format (java.text.SimpleDateFormat.
+                                  "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+                                 %)
+
+                        :else %))
+             rec)))
+
+        ;; Add metadata
+        (assoc :source source-type
                :ingestion_time (System/currentTimeMillis))))))
 
 (defn transform-timestamp

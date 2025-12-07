@@ -50,13 +50,25 @@
 
 (defn save-watermark
   "Save the watermark to file.
-       timestamp: The watermark timestamp value
-       processed-ids: Set of IDs processed at this timestamp
-       watermark-file: Path to the watermark file
-       metadata: Optional metadata map to store with watermark"
-  ([watermark-file timestamp processed-ids]
-   (save-watermark watermark-file timestamp processed-ids {}))
+       For timestamp-based: (save-watermark file timestamp ids metadata)
+       For row-based: (save-watermark file row-number metadata)"
+  ([watermark-file value-or-timestamp metadata-or-ids]
+   (if (set? metadata-or-ids)
+         ;; Three args, old signature: timestamp, ids, (missing metadata)
+     (save-watermark watermark-file value-or-timestamp metadata-or-ids {})
+         ;; Two args, row-based: row-number, metadata
+     (let [watermark {:last-row-number value-or-timestamp
+                      :last-run (timestamp->string (java.time.Instant/now))
+                      :metadata metadata-or-ids}]
+       (try
+         (spit watermark-file (pr-str watermark))
+         (log/info "Saved watermark:" {:row-number value-or-timestamp})
+         watermark
+         (catch Exception e
+           (log/error "Failed to save watermark:" (.getMessage e))
+           (throw e))))))
   ([watermark-file timestamp processed-ids metadata]
+       ;; Four args, timestamp-based
    (let [watermark {:last-timestamp (timestamp->string timestamp)
                     :processed-ids (set processed-ids)
                     :last-run (timestamp->string (java.time.Instant/now))
@@ -106,6 +118,12 @@
                     (number? ts2) ts2
                     :else 0)]
       (compare millis1 millis2))))
+
+(defn find-max-row-number
+  "Find the maximum row number from a collection of records (for CSV sources)"
+  [records]
+  (when (seq records)
+    (apply max (map :__row_number records))))
 
 (defn find-max-timestamp
   "Find the maximum timestamp from a collection of records.
@@ -177,27 +195,43 @@
 
 (defn build-incremental-condition
   "Build a condition map for incremental queries based on watermark.
-       Uses composite condition: timestamp > watermark OR (timestamp = watermark AND id NOT IN processed-ids)
 
-       watermark: Watermark record or nil
-       timestamp-column: Keyword for the timestamp column
-       id-column: Keyword for the unique ID column
+       For timestamp-based watermarks (databases):
+         Uses composite condition: timestamp > watermark OR (timestamp = watermark AND id NOT IN processed-ids)
 
-       Returns condition map suitable for query builders."
+       For row-based watermarks (CSV files):
+         Returns nil (offset is handled separately in CSV adapter)
+
+       Args:
+         watermark: Watermark record or nil
+         col1: For databases: timestamp-column keyword. For CSV: not used
+         col2: For databases: id-column keyword. For CSV: not used
+
+       Returns condition map suitable for query builders, or nil for row-based."
   [watermark timestamp-column id-column]
-  (when (and watermark (:last-timestamp watermark))
+  (cond
+        ;; Timestamp-based watermark (database)
+    (and watermark (:last-timestamp watermark))
     (let [ts (:last-timestamp watermark)
           processed-ids (:processed-ids watermark #{})
           comparable-ts (if (string? ts)
                           (string->instant ts)
                           ts)]
       (if (seq processed-ids)
-                   ;; Composite condition: ts > watermark OR (ts = watermark AND id NOT IN processed)
+               ;; Composite condition: ts > watermark OR (ts = watermark AND id NOT IN processed)
         {:or [{timestamp-column [:> comparable-ts]}
               {:and [{timestamp-column [:= comparable-ts]}
                      {id-column [:not-in processed-ids]}]}]}
-                   ;; Simple condition: ts > watermark
-        {timestamp-column [:> comparable-ts]}))))
+               ;; Simple condition: ts > watermark
+        {timestamp-column [:> comparable-ts]}))
+
+        ;; Row-based watermark (CSV) - return nil, offset handled in fetch
+    (and watermark (:last-row-number watermark))
+    nil
+
+        ;; No watermark
+    :else
+    nil))
 
 (defn filter-already-processed
   "Filter out records that have already been processed.
@@ -229,8 +263,14 @@
                           (.toHours duration))
                         (catch Exception e
                           nil)))]
-      {:last-timestamp (:last-timestamp watermark)
-       :processed-ids-count (count (:processed-ids watermark #{}))
-       :last-run last-run-str
-       :age-hours age-hours
-       :metadata (:metadata watermark)})))
+      (merge
+       {:last-run last-run-str
+        :age-hours age-hours
+        :metadata (:metadata watermark)}
+                   ;; Add timestamp-based fields if present
+       (when (:last-timestamp watermark)
+         {:last-timestamp (:last-timestamp watermark)
+          :processed-ids-count (count (:processed-ids watermark #{}))})
+                   ;; Add row-based fields if present
+       (when (:last-row-number watermark)
+         {:last-row-number (:last-row-number watermark)})))))

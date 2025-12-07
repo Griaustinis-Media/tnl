@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/tsung_and_leng_16x9.jpg" alt="Tsung & Leng" width="800"/>
+</p>
+
 # TNL (Tsang + Leng)
 
 A complete data pipeline development toolkit: Parse SQL queries and generate production-ready Clojure data pipelines.

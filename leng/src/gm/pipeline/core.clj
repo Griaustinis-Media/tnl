@@ -26,21 +26,37 @@
 (defn make-transform-record
   [config]
   (fn [record]
-    (let [pipeline-cfg (:pipeline config)]
-      (-> record
-        (update (:timestamp-column pipeline-cfg)
-                #(cond
-                   (instance? java.time.Instant %)
-                   (.toString %)
+    (let [pipeline-cfg (:pipeline config)
+          source-type (:source-type pipeline-cfg)
+          timestamp-col (:timestamp-column pipeline-cfg)
 
-                   (instance? java.util.Date %)
-                   (.format (java.text.SimpleDateFormat.
-                             "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
-                            %)
+                ;; Step 1: Remove row number
+          rec-without-row (dissoc record :__row_number)
 
-                   :else %))
-        (assoc :source (:source-type pipeline-cfg)
-               :ingestion_time (System/currentTimeMillis))))))
+                ;; Step 2: Transform timestamp if needed
+          rec-with-timestamp (if (and (not= source-type "csv")
+                                      timestamp-col
+                                      (contains? rec-without-row timestamp-col))
+                               (update rec-without-row timestamp-col
+                                       (fn [ts]
+                                         (cond
+                                           (instance? java.time.Instant ts)
+                                           (.toString ts)
+
+                                           (instance? java.util.Date ts)
+                                           (.format (java.text.SimpleDateFormat.
+                                                     "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+                                                    ts)
+
+                                           :else ts)))
+                               rec-without-row)
+
+                ;; Step 3: Add metadata
+          final-rec (assoc rec-with-timestamp
+                           :source source-type
+                           :ingestion_time (System/currentTimeMillis))]
+
+      final-rec)))
 
 (defn transform-timestamp
   "Convert various timestamp types to ISO-8601 string"

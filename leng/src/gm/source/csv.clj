@@ -116,10 +116,15 @@
   [query-spec n]
   (assoc query-spec :limit n))
 
+(defn offset
+  "Add OFFSET to query (for incremental loading)"
+  [query-spec n]
+  (assoc query-spec :offset n))
+
 (defn fetch
   "Fetch records from CSV file based on query specification"
   [adapter query-spec]
-  (let [{:keys [table columns where limit]} query-spec
+  (let [{:keys [table columns where limit offset]} query-spec
             ;; Use file-path from adapter, not the table name
         file-path (:file-path adapter)
 
@@ -129,8 +134,13 @@
             ;; Parse CSV
         all-records (parse-csv file-path (:delimiter adapter))
 
+            ;; Apply OFFSET (skip already processed rows)
+        records-after-offset (if offset
+                               (drop offset all-records)
+                               all-records)
+
             ;; Apply WHERE filter
-        filtered (apply-where-filter all-records where)
+        filtered (apply-where-filter records-after-offset where)
 
             ;; Select columns
         selected (select-columns-from-records filtered columns)
@@ -138,10 +148,17 @@
             ;; Apply limit
         limited (if limit
                   (take limit selected)
-                  selected)]
+                  selected)
 
-    (log/info "Fetched" (count limited) "records from CSV")
-    (vec limited)))
+            ;; Add row number metadata (for watermarking)
+        with-row-numbers (map-indexed
+                          (fn [idx record]
+                            (assoc record :__row_number (+ (or offset 0) idx)))
+                          limited)]
+
+    (log/info "Fetched" (count with-row-numbers) "records from CSV"
+              (when offset (str "(offset: " offset ")")))
+    (vec with-row-numbers)))
 
 (defn fetch-lazy
   "Fetch data lazily for streaming (same as fetch for CSV)"

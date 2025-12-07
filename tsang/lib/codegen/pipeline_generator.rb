@@ -103,6 +103,11 @@ module Tsang
         type_upper = type.to_s.upcase
         
         case type_sym
+        when :csv
+          # File-based sink
+          %Q[{:output-dir (or (System/getenv "#{type_upper}_OUTPUT_DIR") "./output")
+              :delimiter ","
+              :append? true}]
         when :druid
           # URL-based sink with auth
           %Q[{:base-url (or (System/getenv "#{type_upper}_URL") "#{default_url_for(type_sym)}")

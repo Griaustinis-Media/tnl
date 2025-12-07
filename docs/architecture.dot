@@ -1,6 +1,7 @@
 digraph TNL_Architecture {
     rankdir=TB;
     node [shape=box, style="rounded,filled", fontname="Arial", fontsize=12];
+    node [margin="0.12,0.08"];
     edge [fontname="Arial", fontsize=10];
     
     // Define node styles
@@ -33,7 +34,7 @@ digraph TNL_Architecture {
         color="#0277BD";
         penwidth=2;
         
-        Adapters [label="Protocol-Based\nAdapters", fillcolor="#81D4FA"];
+        Adapters [label="Protocol-Based\nAdapters", fillcolor="#81D4FA", penwidth=1.5];
         Sources [label="Source Adapters\n(Cassandra, PostgreSQL)", fillcolor="#4FC3F7"];
         Sinks [label="Sink Adapters\n(Druid, PostgreSQL)", fillcolor="#29B6F6"];
         Utils [label="Utilities\n(Watermark, etc.)", fillcolor="#03A9F4"];

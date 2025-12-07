@@ -118,38 +118,35 @@
     (let [and-results (map build-where-clause (:and conditions))
           and-clauses (map :clause and-results)
           all-values (vec (mapcat :values and-results))]
-      {:clause (str "(" (clojure.string/join " AND " and-clauses) ")")
+              ;; Don't wrap AND clauses in parentheses - just join with AND
+      {:clause (clojure.string/join " AND " and-clauses)
        :values all-values})
 
          ;; Regular map of conditions
     :else
     (let [clauses (for [[col val] conditions]
                     (cond
-                              ;; IN operator: {:col [:in [values]]} or {:col [:in #{values}]}
+                              ;; IN operator: {:col [:in [values]]}
                       (and (vector? val) (= :in (first val)))
                       (let [raw-values (second val)
-                                    ;; Ensure we have a vector of values
                             values-vec (cond
                                          (set? raw-values) (vec raw-values)
                                          (vector? raw-values) raw-values
                                          (seq? raw-values) (vec raw-values)
                                          :else [raw-values])
-                                    ;; Convert each individual value
                             values (mapv to-cassandra-value values-vec)
                             placeholders (clojure.string/join ", " (repeat (count values) "?"))]
                         {:clause (str (name col) " IN (" placeholders ")")
                          :values values})
 
-                              ;; NOT IN operator: {:col [:not-in [values]]} or {:col [:not-in #{values}]}
+                              ;; NOT IN operator: {:col [:not-in [values]]}
                       (and (vector? val) (= :not-in (first val)))
                       (let [raw-values (second val)
-                                    ;; Ensure we have a vector of values
                             values-vec (cond
                                          (set? raw-values) (vec raw-values)
                                          (vector? raw-values) raw-values
                                          (seq? raw-values) (vec raw-values)
                                          :else [raw-values])
-                                    ;; Convert each individual value
                             values (mapv to-cassandra-value values-vec)
                             placeholders (clojure.string/join ", " (repeat (count values) "?"))]
                         {:clause (str (name col) " NOT IN (" placeholders ")")

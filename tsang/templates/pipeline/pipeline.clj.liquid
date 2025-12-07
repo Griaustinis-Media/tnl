@@ -1,5 +1,6 @@
 (ns {{ namespace }}
   (:require [gm.source.{{ source.type }} :as source]
+            [gm.pipeline.core :as pipeline]
             [gm.sink.core :as sink]
             [gm.sink.{{ sink.type }} :as {{ sink.type }}]
             {% if watermark_enabled %}[gm.utils.watermark :as watermark]{% endif %}
@@ -22,46 +23,12 @@
    :pipeline {:batch-size {{ batch_size }}
               :source-table "{{ source.table }}"
               :dest-table "{{ sink.table }}"
+              :source-type "{{ source.type }}"
               :timestamp-column :{{ timestamp_column }}
               :id-column :{{ id_column | default: "id" }}
               {% if watermark_enabled %}:watermark-file ".pipeline-watermark.edn"{% endif %}}})
-  
 
-;; Helper: Build WHERE clause from conditions
-(defn build-where-clause
-  "Convert condition maps to source adapter WHERE format"
-  [conditions]
-  (reduce
-    (fn [acc condition]
-      (case (:type condition)
-        :in (merge acc {(:column condition) 
-                        (if (:negated condition)
-                          [:not-in (:values condition)]
-                          [:in (:values condition)])})
-        ;; Default: simple comparison
-        (merge acc {(:column condition)
-                    (if (= (:operator condition) "=")
-                      (:value condition)
-                      [(keyword (:operator condition)) (:value condition)])})))
-    {}
-    conditions))
-
-;; Data transformation
-(defn transform-record
-  "Transform {{ source.type }} record to {{ sink.type }} format"
-  [record]
-  (-> record
-      (update (:timestamp-column (:pipeline config))
-              #(cond
-                 (instance? java.time.Instant %)
-                 (.toString %)
-                 
-                 (instance? java.util.Date %)
-                 (.format (java.text.SimpleDateFormat. "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'") %)
-                 
-                 :else %))
-      (assoc :source "{{ source.type }}"
-             :ingestion_time (System/currentTimeMillis))))
+(def transform-record (pipeline/make-transform-record config))
 
 {% if watermark_enabled %}
 ;; Incremental pipeline execution
@@ -163,7 +130,7 @@
 
             ;; Apply static WHERE conditions if any
             {% if conditions.size > 0 %}
-            where-conditions (build-where-clause [
+            where-conditions (pipeline/build-where-clause [
               {% for cond in conditions %}
               {:type :{{ cond.type }}
                :column :{{ cond.column }}

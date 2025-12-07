@@ -11,7 +11,7 @@ TNL automates the creation of data pipelines by transforming SQL queries into fu
 ### Architecture
 
 <p align="center">
-  <img src="docs/architecture.png" alt="TNL Architecture" width="800"/>
+  <img src="docs/architecture.svg" alt="TNL Architecture" width="800"/>
 </p>
 
 ## Components

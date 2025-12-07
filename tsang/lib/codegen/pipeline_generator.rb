@@ -59,25 +59,41 @@ module Tsang
       end
 
       def extract_columns
-        return [:all] if ast[:columns].nil? || ast[:columns].empty?
+        return [:*] if ast[:columns].nil? || ast[:columns].empty?
         
         ast[:columns].map do |col|
-          if col[:type] == :all
-            :all
+          case col[:type]
+          when :all
+            :*
+          when :column
+            col[:name] == '*' ? :* : col[:name].to_sym
+          when :function
+            # For functions, we might want to keep them as-is or format specially
+            col[:name].to_sym
           else
-            col[:name]
+            col[:name] ? col[:name].to_sym : :*
           end
         end.flatten.uniq
       end
 
       def format_value_for_clojure(value)
+        return nil unless value
+        
         case value[:type]
-        when :literal, :string
+        when :literal
+          # Literals could be strings or numbers, need to check the actual value
+          val = value[:value]
+          if val.is_a?(Numeric)
+            val
+          else
+            "\"#{val}\""
+          end
+        when :string
           "\"#{value[:value]}\""
         when :number
-          value[:value]
+          value[:value].to_i
         else
-          "\"#{value[:value]}\""
+          "\"#{value}\""
         end
       end
 
@@ -103,12 +119,19 @@ module Tsang
       end
 
       def extract_column_name(expr)
-        case expr[:type]
-        when :column, :identifier
-          expr[:name]
-        else
-          expr[:value] || expr.to_s
-        end
+        return nil unless expr
+        
+        col_name = case expr[:type]
+                  when :column, :identifier
+                    expr[:name]
+                  when :literal, :string, :number
+                    expr[:value]
+                  else
+                    expr[:name] || expr[:value]
+                  end
+        
+        # Convert to symbol if it's a string
+        col_name.is_a?(String) ? col_name.to_sym : col_name
       end
 
       def extract_value(expr)

@@ -43,7 +43,16 @@ module Tsang
         when Tsang::AST::FunctionCall
           { type: :function, name: node.name, arguments: node.arguments || [] }
         when Tsang::AST::Literal
-          { type: :literal, value: node.value }
+          case node.data_type
+          when :NUMBER
+            { type: :number, value: node.value.to_i }
+          when :STRING
+            { type: :string, value: node.value }
+          when :NULL
+            { type: :null, value: nil }
+          else
+            { type: :literal, value: node.value }
+          end
         when Tsang::AST::Join
           { type: node.type || :inner, table: to_hash(node.table), condition: to_hash(node.condition) }
         when Tsang::AST::OrderBy

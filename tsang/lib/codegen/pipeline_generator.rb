@@ -219,6 +219,7 @@ module Tsang
         when :cassandra then '127.0.0.1'
         when :postgres then 'localhost'
         when :mongodb then 'localhost'
+        when :csv then './data'
         else 'localhost'
         end
       end
@@ -228,6 +229,7 @@ module Tsang
         when :cassandra then 9042
         when :postgres then 5432
         when :mongodb then 27017
+        when :csv then nil
         else 8080
         end
       end

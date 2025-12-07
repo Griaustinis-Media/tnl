@@ -54,7 +54,8 @@ module Tsang
         {
           type: sink_type,
           table: sink_config[:table] || extract_table_name(ast[:from]),
-          default_url: sink_config[:default_url] || default_url_for(sink_type)
+          default_url: sink_config[:default_url] || default_url_for(sink_type),
+          config_template: sink_config_template_for(sink_type)
         }
       end
 
@@ -95,6 +96,41 @@ module Tsang
         else
           "\"#{value}\""
         end
+      end
+
+      def sink_config_template_for(type)
+        type_sym = type.to_sym
+        type_upper = type.to_s.upcase
+        
+        case type_sym
+        when :druid
+          # URL-based sink with auth
+          %Q[{:base-url (or (System/getenv "#{type_upper}_URL") "#{default_url_for(type_sym)}")
+              :auth {:type :basic
+                      :username (System/getenv "#{type_upper}_USER")
+                      :password (System/getenv "#{type_upper}_PASSWORD")}}]
+        
+          when :elasticsearch
+            # URL-based sink with simple auth
+            %Q[{:base-url (or (System/getenv "#{type_upper}_URL") "#{default_url_for(type_sym)}")
+                :username (System/getenv "#{type_upper}_USER")
+                :password (System/getenv "#{type_upper}_PASSWORD")}]
+        
+          when :postgres, :postgresql
+            # JDBC-style with dbname
+            %Q[{:host (or (System/getenv "#{type_upper}_HOST") "#{default_host_for(type_sym)}")
+                :port #{default_port_for(type_sym)}
+                :dbname (or (System/getenv "#{type_upper}_DB") "postgres")
+                :user (System/getenv "#{type_upper}_USER")
+                :password (System/getenv "#{type_upper}_PASSWORD")}]
+          
+          else
+            # Generic host/port with username/password
+            %Q[{:host (or (System/getenv "#{type_upper}_HOST") "#{default_host_for(type_sym)}")
+                :port #{default_port_for(type_sym)}
+                :username (System/getenv "#{type_upper}_USER")
+                :password (System/getenv "#{type_upper}_PASSWORD")}]
+          end
       end
 
       def extract_conditions

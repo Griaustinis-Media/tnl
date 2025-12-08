@@ -103,6 +103,10 @@ module Tsang
         type_upper = type.to_s.upcase
         
         case type_sym
+        when :dunwich
+          # REST API sink
+          %Q[{:base-url (System/getenv "#{type_upper}_URL")
+              :api-key (System/getenv "#{type_upper}_API_KEY")}]
         when :csv
           # File-based sink
           %Q[{:output-dir (or (System/getenv "#{type_upper}_OUTPUT_DIR") "./output")

@@ -9,6 +9,7 @@
 
 ;; Configuration
 (def config
+  ;; TODO: we have csv vs ALL config (and that ALL is basically just Cassandra). We need to build custom config structure by source type 
   {:source (merge {:type :{{ source.type }}}
                   {% if source.type == "csv" %}{:file-path (or (System/getenv "CSV_FILE") "{{ source.default_host }}/{{ source.table }}.csv")
                    :delimiter ","}

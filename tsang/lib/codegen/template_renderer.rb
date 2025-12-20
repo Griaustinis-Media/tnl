@@ -49,6 +49,7 @@ module Tsang
           'project_name' => pipeline_data[:config][:project_name],
           'namespace' => pipeline_data[:config][:project_name].gsub('-', '_'),
           'source' => stringify_keys(pipeline_data[:source]),
+          'source_clojure_config' => pipeline_data[:source_clojure_config],
           'sink' => stringify_keys(pipeline_data[:sink]),
           'columns' => pipeline_data[:columns],
           'conditions' => pipeline_data[:conditions].map { |c| stringify_keys(c) },

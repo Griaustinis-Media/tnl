@@ -1,6 +1,7 @@
 require_relative 'tsang'
 require_relative 'ast/ast'
 require_relative 'ast/serializer'
+require_relative 'codegen/source_config_factory'
 require_relative 'codegen/pipeline_generator'
 require_relative 'codegen/template_renderer'
 require 'optparse'

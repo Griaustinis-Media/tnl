@@ -9,15 +9,7 @@
 
 ;; Configuration
 (def config
-  {:source (merge {:type :{{ source.type }}}
-                  {% if source.type == "csv" %}{:file-path (or (System/getenv "CSV_FILE") "{{ source.default_host }}/{{ source.table }}.csv")
-                   :delimiter ","}
-                  {% else %}{:contact-points [(or (System/getenv "{{ source.type | upcase }}_HOST") "{{ source.default_host }}")]
-                   :port {{ source.default_port }}
-                   :username (System/getenv "{{ source.type | upcase }}_USER")
-                   :password (System/getenv "{{ source.type | upcase }}_PASSWORD")
-                   {% if source.schema %}:keyspace "{{ source.schema }}"{% endif %}}
-                  {% endif %})
+  {:source {{ source_clojure_config }}
 
    :sink (merge {:type :{{ sink.type }}}
                 {{ sink.config_template }})
@@ -39,17 +31,10 @@
   (let [start-time (System/currentTimeMillis)
         watermark-file (:watermark-file (:pipeline config))
         wm (watermark/load-watermark watermark-file)
-        {% if source.type == "csv" %}
-        last-row (if wm (:last-row-number wm) 0)
-        {% else %}
         timestamp-col (:timestamp-column (:pipeline config))
-        id-col (:id-column (:pipeline config))
-        {% endif %}]
+        id-col (:id-column (:pipeline config))]
 
     (log/info "Watermark stats:" (watermark/watermark-stats wm))
-    {% if source.type == "csv" %}
-    (log/info "Starting from row:" last-row)
-    {% endif %}
 
     (let [source-conn (-> (source/create-adapter)
                           (source/connect (:source config)))
@@ -60,35 +45,38 @@
         (let [base-query (-> (source/query-spec (:source-table (:pipeline config)))
                              (source/select-columns [{% for col in columns %}:{{ col }} {% unless forloop.last %} {% endunless %}{% endfor %}]))
               
-              {% if source.type == "csv" %}
-              ;; CSV: Apply offset based on watermark
-              query (if wm
-                     (do
-                       (log/info "Fetching records after row" last-row)
-                       (source/offset base-query (inc last-row)))
-                     (do
-                       (log/info "No watermark found, fetching all records")
-                       base-query))
-              
-              source-data (source/fetch source-conn query)
-              filtered-data source-data
-              {% else %}
-              ;; Database: Build composite incremental condition
-              incremental-condition (watermark/build-incremental-condition wm timestamp-col id-col)
-              
-              query (if incremental-condition
+              ;; Build query based on watermark strategy
+              query (cond
+                      ;; Row-based watermark (CSV, etc.)
+                      {% if source.watermark.type == "row_number" %}
+                      wm
+                      (let [last-row (:last-row-number wm)]
+                        (log/info "Fetching records after row" last-row)
+                        (source/offset base-query (inc last-row)))
+                      
+                      :else
                       (do
+                        (log/info "No watermark found, fetching all records")
+                        base-query)
+                      {% else %}
+                      ;; Timestamp-based watermark (databases)
+                      wm
+                      (let [incremental-condition (watermark/build-incremental-condition wm timestamp-col id-col)]
                         (log/info "Fetching records with composite condition")
                         (-> base-query
                             (source/where incremental-condition)
                             (source/allow-filtering)))
+                      
+                      :else
                       (do
                         (log/info "No watermark found, fetching all records")
-                        base-query))
+                        base-query)
+                      {% endif %})
               
               source-data (source/fetch source-conn query)
-              filtered-data (watermark/filter-already-processed source-data wm timestamp-col id-col)
-              {% endif %}
+              
+              ;; Filter for timestamp-based sources
+              filtered-data {% if source.watermark.timestamp_based %}(watermark/filter-already-processed source-data wm timestamp-col id-col){% else %}source-data{% endif %}
               
               record-count (count filtered-data)]
 
@@ -98,14 +86,18 @@
             {:success true :records-processed 0 :message "No new data"}
 
             (let [transformed-data (map transform-record filtered-data)
-                  {% if source.type == "csv" %}
+                  
+                  ;; Calculate watermark based on source type
+                  {% if source.watermark.type == "row_number" %}
                   max-watermark (watermark/find-max-row-number filtered-data)
+                  watermark-meta {}
                   {% else %}
                   [max-timestamp ids-at-max] (watermark/find-max-timestamp filtered-data timestamp-col id-col)
                   max-watermark max-timestamp
+                  watermark-meta {:processed-ids (count ids-at-max)}
                   {% endif %}]
 
-              (log/info "Max watermark:" max-watermark {% if source.type != "csv" %}"with" (count ids-at-max) "records"{% endif %})
+              (log/info "Max watermark:" max-watermark {% if source.watermark.uses_composite %}"with" (count ids-at-max) "records"{% endif %})
 
               (let [result (if (> record-count (:batch-size (:pipeline config)))
                              (sink/batch-insert sink-conn
@@ -116,7 +108,8 @@
                                          (:dest-table (:pipeline config))
                                          transformed-data))]
 
-                {% if source.type == "csv" %}
+                ;; Save watermark based on source type
+                {% if source.watermark.type == "row_number" %}
                 (watermark/save-watermark watermark-file max-watermark
                                         {:records-processed record-count})
                 {% else %}
@@ -124,17 +117,12 @@
                                         {:records-processed record-count})
                 {% endif %}
 
-                {:success true
-                 :records-processed record-count
-                 :elapsed-ms (- (System/currentTimeMillis) start-time)
-                 {% if source.type == "csv" %}
-                 :previous-row last-row
-                 :new-row max-watermark
-                 {% else %}
-                 :previous-watermark (:last-timestamp wm)
-                 :new-watermark max-watermark
-                 :processed-ids (count ids-at-max)
-                 {% endif %}}))))
+                (merge
+                 {:success true
+                  :records-processed record-count
+                  :elapsed-ms (- (System/currentTimeMillis) start-time)
+                  :new-watermark max-watermark}
+                 watermark-meta)))))
 
         (finally
           (source/disconnect source-conn)

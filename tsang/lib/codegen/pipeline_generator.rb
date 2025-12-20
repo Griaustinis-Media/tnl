@@ -21,8 +21,11 @@ module Tsang
       end
 
       def generate
+        source_config = extract_source
+        
         {
-          source: extract_source,
+          source: source_config,
+          source_clojure_config: SourceConfigFactory.generate_clojure_config(source_config),
           sink: extract_sink,
           columns: extract_columns,
           conditions: extract_conditions,
@@ -38,13 +41,11 @@ module Tsang
         from_node = ast[:from]
         source_type = config[:source_type] || :cassandra
         
-        {
-          type: source_type,
+        SourceConfigFactory.build_config(
+          source_type,
           table: extract_table_name(from_node),
-          schema: extract_schema(from_node),
-          default_host: default_host_for(source_type),
-          default_port: default_port_for(source_type)
-        }
+          schema: extract_schema(from_node)
+        )
       end
 
       def extract_sink

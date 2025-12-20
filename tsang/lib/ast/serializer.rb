@@ -4,7 +4,7 @@ module Tsang
       def self.to_hash(node)
         return nil if node.nil?
         return node if node.is_a?(Hash)
-        
+
         case node
         when Tsang::AST::SelectStatement
           {
@@ -22,7 +22,9 @@ module Tsang
         when Tsang::AST::InsertStatement
           { type: :insert, table: to_hash(node.table), columns: node.columns, values: node.values }
         when Tsang::AST::UpdateStatement
-          { type: :update, table: to_hash(node.table), assignments: node.assignments.map { |a| to_hash(a) }, where: to_hash(node.where) }
+          { type: :update, table: to_hash(node.table), assignments: node.assignments.map do |a|
+            to_hash(a)
+          end, where: to_hash(node.where) }
         when Tsang::AST::DeleteStatement
           { type: :delete, table: to_hash(node.table), where: to_hash(node.where) }
         when Tsang::AST::InExpression

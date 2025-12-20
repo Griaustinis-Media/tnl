@@ -8,7 +8,6 @@ module Tsang
         @config = default_config.merge(config)
       end
 
-
       def default_config
         {
           project_name: 'generated-pipeline',
@@ -22,7 +21,7 @@ module Tsang
 
       def generate
         source_config = extract_source
-        
+
         {
           source: source_config,
           source_clojure_config: SourceConfigFactory.generate_clojure_config(source_config),
@@ -40,7 +39,7 @@ module Tsang
       def extract_source
         from_node = ast[:from]
         source_type = config[:source_type] || :cassandra
-        
+
         SourceConfigFactory.build_config(
           source_type,
           table: extract_table_name(from_node),
@@ -51,7 +50,7 @@ module Tsang
       def extract_sink
         sink_config = config[:sink] || {}
         sink_type = sink_config[:type] || :druid
-        
+
         {
           type: sink_type,
           table: sink_config[:table] || extract_table_name(ast[:from]),
@@ -62,7 +61,7 @@ module Tsang
 
       def extract_columns
         return [:*] if ast[:columns].nil? || ast[:columns].empty?
-        
+
         ast[:columns].map do |col|
           case col[:type]
           when :all
@@ -80,7 +79,7 @@ module Tsang
 
       def format_value_for_clojure(value)
         return nil unless value
-        
+
         case value[:type]
         when :literal
           # Literals could be strings or numbers, need to check the actual value
@@ -102,49 +101,50 @@ module Tsang
       def sink_config_template_for(type)
         type_sym = type.to_sym
         type_upper = type.to_s.upcase
-        
+
         case type_sym
         when :dunwich
           # REST API sink
-          %Q[{:base-url (System/getenv "#{type_upper}_URL")
+          %[{:base-url (System/getenv "#{type_upper}_URL")
               :api-key (System/getenv "#{type_upper}_API_KEY")}]
         when :csv
           # File-based sink
-          %Q[{:output-dir (or (System/getenv "#{type_upper}_OUTPUT_DIR") "./output")
+          %[{:output-dir (or (System/getenv "#{type_upper}_OUTPUT_DIR") "./output")
               :delimiter ","
               :append? true}]
         when :druid
           # URL-based sink with auth
-          %Q[{:base-url (or (System/getenv "#{type_upper}_URL") "#{default_url_for(type_sym)}")
+          %[{:base-url (or (System/getenv "#{type_upper}_URL") "#{default_url_for(type_sym)}")
               :auth {:type :basic
                       :username (System/getenv "#{type_upper}_USER")
                       :password (System/getenv "#{type_upper}_PASSWORD")}}]
-        
-          when :elasticsearch
-            # URL-based sink with simple auth
-            %Q[{:base-url (or (System/getenv "#{type_upper}_URL") "#{default_url_for(type_sym)}")
+
+        when :elasticsearch
+          # URL-based sink with simple auth
+          %[{:base-url (or (System/getenv "#{type_upper}_URL") "#{default_url_for(type_sym)}")
                 :username (System/getenv "#{type_upper}_USER")
                 :password (System/getenv "#{type_upper}_PASSWORD")}]
-        
-          when :postgres, :postgresql
-            # JDBC-style with dbname
-            %Q[{:host (or (System/getenv "#{type_upper}_HOST") "#{default_host_for(type_sym)}")
+
+        when :postgres, :postgresql
+          # JDBC-style with dbname
+          %[{:host (or (System/getenv "#{type_upper}_HOST") "#{default_host_for(type_sym)}")
                 :port #{default_port_for(type_sym)}
                 :dbname (or (System/getenv "#{type_upper}_DB") "postgres")
                 :user (System/getenv "#{type_upper}_USER")
                 :password (System/getenv "#{type_upper}_PASSWORD")}]
-          
-          else
-            # Generic host/port with username/password
-            %Q[{:host (or (System/getenv "#{type_upper}_HOST") "#{default_host_for(type_sym)}")
+
+        else
+          # Generic host/port with username/password
+          %[{:host (or (System/getenv "#{type_upper}_HOST") "#{default_host_for(type_sym)}")
                 :port #{default_port_for(type_sym)}
                 :username (System/getenv "#{type_upper}_USER")
                 :password (System/getenv "#{type_upper}_PASSWORD")}]
-          end
+        end
       end
 
       def extract_conditions
         return [] unless ast[:where]
+
         [parse_where_node(ast[:where])].flatten.compact
       end
 
@@ -166,16 +166,16 @@ module Tsang
 
       def extract_column_name(expr)
         return nil unless expr
-        
+
         col_name = case expr[:type]
-                  when :column, :identifier
-                    expr[:name]
-                  when :literal, :string, :number
-                    expr[:value]
-                  else
-                    expr[:name] || expr[:value]
-                  end
-        
+                   when :column, :identifier
+                     expr[:name]
+                   when :literal, :string, :number
+                     expr[:value]
+                   else
+                     expr[:name] || expr[:value]
+                   end
+
         # Convert to symbol if it's a string
         col_name.is_a?(String) ? col_name.to_sym : col_name
       end
@@ -191,19 +191,19 @@ module Tsang
 
       def detect_timestamp_column
         return nil unless ast[:where]
-        
-        time_keywords = ['time', 'date', 'created', 'updated', 'timestamp', 'ts']
+
+        time_keywords = %w[time date created updated timestamp ts]
         find_time_column(ast[:where], time_keywords)
       end
 
       def find_time_column(node, keywords)
         return nil unless node.is_a?(Hash)
-        
+
         if node[:column]
           col_name = node[:column].to_s.downcase
           return node[:column] if keywords.any? { |kw| col_name.include?(kw) }
         end
-        
+
         node.values.each do |value|
           if value.is_a?(Hash)
             result = find_time_column(value, keywords)
@@ -215,13 +215,13 @@ module Tsang
             end
           end
         end
-        
+
         nil
       end
 
       def parse_where_node(node)
         return nil unless node
-        
+
         case node[:type]
         when :and
           # Return array of conditions
@@ -255,8 +255,6 @@ module Tsang
             operator: node[:operator],
             value: format_value_for_clojure(node[:right])
           }
-        else
-          nil
         end
       end
 
@@ -274,7 +272,7 @@ module Tsang
         case type.to_sym
         when :cassandra then 9042
         when :postgres then 5432
-        when :mongodb then 27017
+        when :mongodb then 27_017
         when :csv then nil
         else 8080
         end

@@ -4,7 +4,7 @@ module Tsang
       def accept(visitor)
         visitor.visit(self)
       end
-      
+
       def to_h
         hash = { type: self.class.name.split('::').last }
         instance_variables.each do |var|
@@ -14,9 +14,9 @@ module Tsang
         end
         hash
       end
-      
+
       private
-      
+
       def serialize_value(value)
         case value
         when Node

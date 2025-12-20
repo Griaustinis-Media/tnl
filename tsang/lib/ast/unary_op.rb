@@ -4,7 +4,7 @@ module Tsang
   module AST
     class UnaryOp < Node
       attr_reader :operator, :operand
-      
+
       def initialize(operator:, operand:)
         @operator = operator
         @operand = operand

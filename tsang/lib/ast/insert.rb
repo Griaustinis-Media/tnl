@@ -4,8 +4,8 @@ module Tsang
   module AST
     class InsertStatement < Node
       attr_reader :table, :columns, :values
-      
-      def initialize(table:, columns: [], values:)
+
+      def initialize(table:, values:, columns: [])
         @table = table
         @columns = columns
         @values = values

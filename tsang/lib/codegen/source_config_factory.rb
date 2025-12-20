@@ -7,12 +7,12 @@ module Tsang
 
       # Source type categories
       FILE_SOURCES = [:csv].freeze
-      DATABASE_SOURCES = [:cassandra, :postgres, :mysql, :mongodb].freeze
-      API_SOURCES = [:druid, :elasticsearch].freeze
+      DATABASE_SOURCES = %i[cassandra postgres mysql mongodb].freeze
+      API_SOURCES = %i[druid elasticsearch].freeze
 
       def self.build_config(source_type, table:, schema: nil)
         source_type = source_type.to_sym
-        
+
         {
           type: source_type,
           table: table,
@@ -24,12 +24,11 @@ module Tsang
         }
       end
 
-      private
-
       def self.categorize_source(type)
         return :file if FILE_SOURCES.include?(type)
         return :database if DATABASE_SOURCES.include?(type)
         return :api if API_SOURCES.include?(type)
+
         :database # default
       end
 
@@ -52,7 +51,7 @@ module Tsang
           },
           defaults: {
             file_path: default_file_path(type),
-            delimiter: ","
+            delimiter: ','
           },
           template: :file
         }
@@ -60,7 +59,7 @@ module Tsang
 
       def self.database_connection_config(type)
         type_upper = type.to_s.upcase
-        
+
         {
           env_vars: {
             host: "#{type_upper}_HOST",
@@ -82,7 +81,7 @@ module Tsang
 
       def self.api_connection_config(type)
         type_upper = type.to_s.upcase
-        
+
         {
           env_vars: {
             url: "#{type_upper}_URL",
@@ -135,7 +134,7 @@ module Tsang
         when :cassandra then 9042
         when :postgres, :postgresql then 5432
         when :mysql then 3306
-        when :mongodb then 27017
+        when :mongodb then 27_017
         else 8080
         end
       end
@@ -171,21 +170,21 @@ module Tsang
 
         parts = []
         parts << ":type :#{type}"
-        
+
         # File path
         file_path_expr = if defaults[:file_path]
-          "(or (System/getenv \"#{env_vars[:file_path]}\") \"#{defaults[:file_path]}/#{table}.csv\")"
-        else
-          "(System/getenv \"#{env_vars[:file_path]}\")"
-        end
+                           "(or (System/getenv \"#{env_vars[:file_path]}\") \"#{defaults[:file_path]}/#{table}.csv\")"
+                         else
+                           "(System/getenv \"#{env_vars[:file_path]}\")"
+                         end
         parts << ":file-path #{file_path_expr}"
-        
+
         # Delimiter
-        if env_vars[:delimiter]
-          parts << ":delimiter (or (System/getenv \"#{env_vars[:delimiter]}\") \"#{defaults[:delimiter]}\")"
-        else
-          parts << ":delimiter \"#{defaults[:delimiter]}\""
-        end
+        parts << if env_vars[:delimiter]
+                   ":delimiter (or (System/getenv \"#{env_vars[:delimiter]}\") \"#{defaults[:delimiter]}\")"
+                 else
+                   ":delimiter \"#{defaults[:delimiter]}\""
+                 end
 
         "{#{parts.join("\n                   ")}}"
       end
@@ -198,19 +197,19 @@ module Tsang
 
         parts = []
         parts << ":type :#{type}"
-        
+
         # Host
         parts << ":contact-points [(or (System/getenv \"#{env_vars[:host]}\") \"#{defaults[:host]}\")]"
-        
+
         # Port
         parts << ":port (or (some-> (System/getenv \"#{env_vars[:port]}\") Integer/parseInt) #{defaults[:port]})"
-        
+
         # Username
         parts << ":username (System/getenv \"#{env_vars[:username]}\")"
-        
+
         # Password
         parts << ":password (System/getenv \"#{env_vars[:password]}\")"
-        
+
         # Keyspace/Database (for Cassandra, MongoDB, etc.)
         if schema
           parts << ":keyspace \"#{schema}\""
@@ -228,15 +227,15 @@ module Tsang
 
         parts = []
         parts << ":type :#{type}"
-        
+
         # URL
         url_expr = if defaults[:url]
-          "(or (System/getenv \"#{env_vars[:url]}\") \"#{defaults[:url]}\")"
-        else
-          "(System/getenv \"#{env_vars[:url]}\")"
-        end
+                     "(or (System/getenv \"#{env_vars[:url]}\") \"#{defaults[:url]}\")"
+                   else
+                     "(System/getenv \"#{env_vars[:url]}\")"
+                   end
         parts << ":base-url #{url_expr}"
-        
+
         # Auth
         if env_vars[:username]
           parts << ":username (System/getenv \"#{env_vars[:username]}\")"

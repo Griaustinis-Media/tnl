@@ -2,3 +2,4 @@ build/
 configs/
 .DS_Store
 leng/logs
+tsang/gen-our-test.sh

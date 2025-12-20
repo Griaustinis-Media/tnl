@@ -21,4 +21,3 @@ module Tsang
   module AST
   end
 end
-

@@ -20,23 +20,23 @@ module Tsang
 
       def render_project(pipeline_data)
         FileUtils.mkdir_p(output_dir)
-        
+
         context = build_context(pipeline_data)
-        
+
         files = {
           'deps.edn' => 'pipeline/deps.edn',
           "src/#{context['namespace']}.clj" => 'pipeline/pipeline.clj',
           'README.md' => 'pipeline/README.md',
           'resources/logback.xml' => 'pipeline/logback.xml'
         }
-        
+
         files.each do |output_path, template_name|
           full_output_path = File.join(output_dir, output_path)
           FileUtils.mkdir_p(File.dirname(full_output_path))
-          
+
           content = render(template_name, context)
           File.write(full_output_path, content)
-          
+
           puts "  ✓ Generated: #{output_path}"
         end
       end
@@ -44,11 +44,12 @@ module Tsang
       private
 
       def build_context(pipeline_data)
-        #puts("CTX: #{pipeline_data}")
+        # puts("CTX: #{pipeline_data}")
         {
           'project_name' => pipeline_data[:config][:project_name],
           'namespace' => pipeline_data[:config][:project_name].gsub('-', '_'),
           'source' => stringify_keys(pipeline_data[:source]),
+          'source_clojure_config' => pipeline_data[:source_clojure_config],
           'sink' => stringify_keys(pipeline_data[:sink]),
           'columns' => pipeline_data[:columns],
           'conditions' => pipeline_data[:conditions].map { |c| stringify_keys(c) },
@@ -64,6 +65,7 @@ module Tsang
 
       def stringify_keys(hash)
         return hash unless hash.is_a?(Hash)
+
         hash.transform_keys(&:to_s).transform_values do |v|
           v.is_a?(Hash) ? stringify_keys(v) : v
         end

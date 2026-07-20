@@ -87,6 +87,47 @@ RSpec.describe 'Code Generation' do
 
       expect(data[:conditions][0][:value]).to eq(25)
     end
+
+    it 'flattens AND-combined WHERE conditions' do
+      sql = "SELECT * FROM users WHERE status = 'active' AND age = 25 AND role IN ('admin', 'editor')"
+      ast_obj = Tsang.parse(sql)
+      ast = Tsang::AST::Serializer.to_hash(ast_obj)
+
+      generator = Tsang::Codegen::PipelineGenerator.new(ast, {})
+      data = generator.generate
+
+      expect(data[:conditions].length).to eq(3)
+      expect(data[:conditions].map { |c| c[:column] }).to eq(%i[status age role])
+      expect(data[:conditions][0][:operator]).to eq('=')
+      expect(data[:conditions][2][:type]).to eq('in_expression')
+    end
+
+    it 'raises on OR conditions instead of dropping them' do
+      sql = "SELECT * FROM users WHERE status = 'active' OR age = 25"
+      ast_obj = Tsang.parse(sql)
+      ast = Tsang::AST::Serializer.to_hash(ast_obj)
+
+      generator = Tsang::Codegen::PipelineGenerator.new(ast, {})
+
+      expect { generator.generate }.to raise_error(Tsang::Codegen::UnsupportedSQLError, /OR conditions/)
+    end
+
+    %w[JOIN GROUP\ BY ORDER\ BY LIMIT OFFSET].each do |clause|
+      sql_for_clause = {
+        'JOIN' => 'SELECT * FROM users u JOIN orders o ON u.id = o.user_id',
+        'GROUP BY' => 'SELECT status, COUNT(*) FROM users GROUP BY status',
+        'ORDER BY' => 'SELECT * FROM users ORDER BY created_at DESC',
+        'LIMIT' => 'SELECT * FROM users LIMIT 10',
+        'OFFSET' => 'SELECT * FROM users LIMIT 10 OFFSET 5'
+      }
+
+      it "raises on #{clause} instead of dropping it" do
+        ast = Tsang::AST::Serializer.to_hash(Tsang.parse(sql_for_clause[clause]))
+        generator = Tsang::Codegen::PipelineGenerator.new(ast, {})
+
+        expect { generator.generate }.to raise_error(Tsang::Codegen::UnsupportedSQLError, /#{clause}/)
+      end
+    end
   end
 
   describe 'AST Serializer' do

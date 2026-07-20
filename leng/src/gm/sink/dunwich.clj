@@ -1,6 +1,6 @@
 (ns gm.sink.dunwich
   "Dunwich batch ingestion sink adapter"
-  (:require [clojure.data.json :as json]
+  (:require [cheshire.core :as json]
             [clj-http.client :as http]
             [gm.sink.core :as sink]
             [clojure.tools.logging :as log]))
@@ -22,7 +22,7 @@
                   (:api-key adapter)
                   (assoc "Authorization" (str "Bearer " (:api-key adapter))))
         options {:headers headers
-                 :body (json/write-str payload)
+                 :body (json/generate-string payload)
                  :content-type :json
                  :accept :json
                  :throw-exceptions false}]
@@ -70,7 +70,7 @@
             (log/info "Successfully ingested" (count records) "records to" table)
             {:success true
              :records-written (count records)
-             :response (json/read-str (:body response) :key-fn keyword)})
+             :response (json/parse-string (:body response) true)})
           (do
             (log/error "Failed to ingest records:" (:status response) (:body response))
             (throw (ex-info "Dunwich ingestion failed"

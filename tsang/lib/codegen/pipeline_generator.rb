@@ -1,5 +1,9 @@
 module Tsang
   module Codegen
+    # Raised when the parsed SQL uses features the generated pipeline cannot express.
+    # Generation must fail loudly instead of silently dropping clauses.
+    class UnsupportedSQLError < StandardError; end
+
     class PipelineGenerator
       attr_reader :ast, :config
 
@@ -20,6 +24,8 @@ module Tsang
       end
 
       def generate
+        validate_supported_ast!
+
         source_config = extract_source
 
         {
@@ -35,6 +41,21 @@ module Tsang
       end
 
       private
+
+      def validate_supported_ast!
+        unsupported = []
+        unsupported << 'JOIN' if ast[:joins]&.any?
+        unsupported << 'GROUP BY' if ast[:group_by]
+        unsupported << 'HAVING' if ast[:having]
+        unsupported << 'ORDER BY' if ast[:order_by]&.any?
+        unsupported << 'LIMIT' if ast[:limit]
+        unsupported << 'OFFSET' if ast[:offset]
+        return if unsupported.empty?
+
+        raise UnsupportedSQLError,
+              "Cannot generate pipeline: #{unsupported.join(', ')} not supported. " \
+              'Pipelines support plain SELECT with a WHERE clause of AND-combined comparisons and IN lists.'
+      end
 
       def extract_source
         from_node = ast[:from]
@@ -222,24 +243,28 @@ module Tsang
       def parse_where_node(node)
         return nil unless node
 
-        case node[:type]
-        when :and
-          # Return array of conditions
-          node[:left] && node[:right] ? [parse_where_node(node[:left]), parse_where_node(node[:right])] : nil
-        when :or
-          # For OR, we'd need more complex handling - for now treat as single condition
-          parse_single_condition(node)
-        when :in_expression
-          parse_single_condition(node)
-        when :binary_op
-          parse_single_condition(node)
+        type = node[:type]&.to_sym
+        operator = node[:operator].to_s.upcase
+
+        if type == :binary_op && operator == 'AND'
+          [parse_where_node(node[:left]), parse_where_node(node[:right])]
+        elsif type == :binary_op && operator == 'OR'
+          raise UnsupportedSQLError,
+                'Cannot generate pipeline: OR conditions in WHERE are not supported. ' \
+                'Pipelines support AND-combined comparisons and IN lists only.'
         else
-          parse_single_condition(node)
+          parse_single_condition(node) || raise_unsupported_condition(node)
         end
       end
 
+      def raise_unsupported_condition(node)
+        raise UnsupportedSQLError,
+              "Cannot generate pipeline: unsupported WHERE condition (#{node[:type]}). " \
+              'Pipelines support AND-combined comparisons and IN lists only.'
+      end
+
       def parse_single_condition(node)
-        case node[:type]
+        case node[:type]&.to_sym
         when :in_expression
           {
             type: 'in_expression',

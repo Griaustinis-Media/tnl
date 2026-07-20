@@ -11,26 +11,49 @@ Generated pipeline from SQL query.
 
 ### Environment Variables
 
-**{{ source.type | capitalize }}:**
-- `{{ source.type | upcase }}_HOST` - {{ source.type | capitalize }} host (default: {{ source.default_host }})
-- `{{ source.type | upcase }}_USER` - Username
-- `{{ source.type | upcase }}_PASSWORD` - Password
-
-**{{ sink.type | capitalize }}:**
-- `{{ sink.type | upcase }}_URL` - {{ sink.type | capitalize }} URL (default: {{ sink.default_url }})
+**{{ source.type | capitalize }} source:**
+{% if source.category == 'file' %}- `{{ source.connection.env_vars.file_path }}` - Path to input file (default: {{ source.connection.defaults.file_path }}/{{ source.table }}.csv)
+- `{{ source.connection.env_vars.delimiter }}` - Field delimiter (default: `{{ source.connection.defaults.delimiter }}`)
+{% elsif source.category == 'api' %}- `{{ source.connection.env_vars.url }}` - {{ source.type | capitalize }} URL (default: {{ source.connection.defaults.url }})
+- `{{ source.connection.env_vars.username }}` - Username
+- `{{ source.connection.env_vars.password }}` - Password
+{% else %}- `{{ source.connection.env_vars.host }}` - {{ source.type | capitalize }} host (default: {{ source.connection.defaults.host }})
+- `{{ source.connection.env_vars.port }}` - Port (default: {{ source.connection.defaults.port }})
+- `{{ source.connection.env_vars.username }}` - Username
+- `{{ source.connection.env_vars.password }}` - Password
+{% endif %}
+**{{ sink.type | capitalize }} sink:**
+{% case sink.type %}{% when 'csv' %}- `{{ sink.type | upcase }}_OUTPUT_DIR` - Output directory (default: ./output)
+{% when 'dunwich' %}- `{{ sink.type | upcase }}_URL` - {{ sink.type | capitalize }} URL (default: {{ sink.default_url }})
+- `{{ sink.type | upcase }}_API_KEY` - API key
+{% when 'postgres' or 'postgresql' %}- `{{ sink.type | upcase }}_HOST` - {{ sink.type | capitalize }} host
+- `{{ sink.type | upcase }}_DB` - Database name (default: postgres)
 - `{{ sink.type | upcase }}_USER` - Username
 - `{{ sink.type | upcase }}_PASSWORD` - Password
-
+{% else %}- `{{ sink.type | upcase }}_URL` - {{ sink.type | capitalize }} URL (default: {{ sink.default_url }})
+- `{{ sink.type | upcase }}_USER` - Username
+- `{{ sink.type | upcase }}_PASSWORD` - Password
+{% endcase %}
 ## Running
 ````bash
 # Set environment variables
-export {{ source.type | upcase }}_HOST={{ source.default_host }}
-export {{ source.type | upcase }}_USER=your-user
-export {{ source.type | upcase }}_PASSWORD=your-password
-export {{ sink.type | upcase }}_URL={{ sink.default_url }}
+{% if source.category == 'file' %}export {{ source.connection.env_vars.file_path }}={{ source.connection.defaults.file_path }}/{{ source.table }}.csv
+{% elsif source.category == 'api' %}export {{ source.connection.env_vars.url }}={{ source.connection.defaults.url }}
+export {{ source.connection.env_vars.username }}=your-user
+export {{ source.connection.env_vars.password }}=your-password
+{% else %}export {{ source.connection.env_vars.host }}={{ source.connection.defaults.host }}
+export {{ source.connection.env_vars.username }}=your-user
+export {{ source.connection.env_vars.password }}=your-password
+{% endif %}{% case sink.type %}{% when 'csv' %}export {{ sink.type | upcase }}_OUTPUT_DIR=./output
+{% when 'dunwich' %}export {{ sink.type | upcase }}_URL={{ sink.default_url }}
+export {{ sink.type | upcase }}_API_KEY=your-api-key
+{% when 'postgres' or 'postgresql' %}export {{ sink.type | upcase }}_HOST=localhost
 export {{ sink.type | upcase }}_USER=your-user
 export {{ sink.type | upcase }}_PASSWORD=your-password
-
+{% else %}export {{ sink.type | upcase }}_URL={{ sink.default_url }}
+export {{ sink.type | upcase }}_USER=your-user
+export {{ sink.type | upcase }}_PASSWORD=your-password
+{% endcase %}
 {% if watermark_enabled %}# Run incremental load
 clj -M:run incremental
 
@@ -38,7 +61,7 @@ clj -M:run incremental
 clj -M:run full-reload
 {% else %}# Run pipeline
 clj -M:run
-{% endif %}```
+{% endif %}````
 
 ## Pipeline Details
 
